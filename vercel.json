@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/neural-tts",
+      "destination": "/api/neural-tts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

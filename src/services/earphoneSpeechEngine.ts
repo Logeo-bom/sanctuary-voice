@@ -341,15 +341,30 @@ export class EarphoneSpeechEngine {
       });
 
       if (matching.length > 0) {
-        // Prioritize Natural / Online / Google neural voices over robotic Microsoft Desktop SAPI5
+        // Prioritize natural/online voices AND specifically female voices (Zira, Jenny, Ava, Natural, Google, Female)
+        // avoids the deep robotic male Microsoft David voice
         const ranked = [...matching].sort((a, b) => {
           const score = (v: SpeechSynthesisVoice) => {
             const n = v.name.toLowerCase();
-            if (n.includes('natural')) return 100;
-            if (n.includes('online')) return 90;
-            if (n.includes('google')) return 80;
-            if (!v.localService) return 70;
-            return 10;
+            let pts = 0;
+            if (n.includes('natural')) pts += 100;
+            if (n.includes('online')) pts += 80;
+            if (n.includes('google')) pts += 70;
+            if (
+              n.includes('zira') ||
+              n.includes('jenny') ||
+              n.includes('ava') ||
+              n.includes('female') ||
+              n.includes('samantha') ||
+              n.includes('victoria')
+            ) {
+              pts += 50;
+            }
+            if (n.includes('david') || n.includes('george') || n.includes('mark')) {
+              pts -= 50; // deprioritize robotic male desktop voices
+            }
+            if (!v.localService) pts += 20;
+            return pts;
           };
           return score(b) - score(a);
         });
@@ -357,7 +372,8 @@ export class EarphoneSpeechEngine {
       }
 
       utterance.rate = rate;
-      utterance.pitch = this.config.pitch;
+      // Slight pitch raise (1.05) to ensure a warm, natural female translator tone
+      utterance.pitch = Math.max(1.05, this.config.pitch || 1.05);
       utterance.volume = this.config.volume;
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();

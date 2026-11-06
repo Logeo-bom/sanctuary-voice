@@ -322,7 +322,14 @@ export function App() {
 
       setSegments((prev) => [...prev, newSegment]);
 
-      if (!isMutedByLock && speechEngineRef.current) {
+      // Only speak Speaker 1 (the main preacher) into the listener's earphones by default.
+      // This eliminates the second voice (stage interpreter) repeating in the earphones!
+      const shouldSpeakInEarphones =
+        !isMutedByLock &&
+        params.speakerId === 'speaker_1' &&
+        speechEngineRef.current;
+
+      if (shouldSpeakInEarphones && speechEngineRef.current) {
         speechEngineRef.current.speakTranslation(
           params.translatedText,
           targetLangRef.current,

@@ -322,11 +322,13 @@ export function App() {
 
       setSegments((prev) => [...prev, newSegment]);
 
-      // Only speak Speaker 1 (the main preacher) into the listener's earphones by default.
-      // This eliminates the second voice (stage interpreter) repeating in the earphones!
+      // In stage simulation mode, only translate and speak Speaker 1.
+      // Translator 2 (the stage interpreter) is never spoken into earphones.
+      const isSimulation = isSimulatingStage;
+      const isTargetSpeaker = !isSimulation || params.speakerId === 'speaker_1';
       const shouldSpeakInEarphones =
         !isMutedByLock &&
-        params.speakerId === 'speaker_1' &&
+        isTargetSpeaker &&
         speechEngineRef.current;
 
       if (shouldSpeakInEarphones && speechEngineRef.current) {

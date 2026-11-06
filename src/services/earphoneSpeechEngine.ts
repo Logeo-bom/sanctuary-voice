@@ -340,10 +340,23 @@ export class EarphoneSpeechEngine {
         return vl.startsWith(prefix) || vl.startsWith(bcpPrefix);
       });
 
-      if (matching.length > 0) {
+      // Strict filter: Exclude any male desktop robotic voices (David, Mark, George, Richard)
+      const nonMaleVoices = matching.filter((v) => {
+        const n = v.name.toLowerCase();
+        return (
+          !n.includes('david') &&
+          !n.includes('mark') &&
+          !n.includes('george') &&
+          !n.includes('richard') &&
+          !n.includes('male')
+        );
+      });
+
+      const voicePool = nonMaleVoices.length > 0 ? nonMaleVoices : matching;
+
+      if (voicePool.length > 0) {
         // Prioritize natural/online voices AND specifically female voices (Zira, Jenny, Ava, Natural, Google, Female)
-        // avoids the deep robotic male Microsoft David voice
-        const ranked = [...matching].sort((a, b) => {
+        const ranked = [...voicePool].sort((a, b) => {
           const score = (v: SpeechSynthesisVoice) => {
             const n = v.name.toLowerCase();
             let pts = 0;
@@ -356,12 +369,11 @@ export class EarphoneSpeechEngine {
               n.includes('ava') ||
               n.includes('female') ||
               n.includes('samantha') ||
-              n.includes('victoria')
+              n.includes('victoria') ||
+              n.includes('hazel') ||
+              n.includes('susan')
             ) {
-              pts += 50;
-            }
-            if (n.includes('david') || n.includes('george') || n.includes('mark')) {
-              pts -= 50; // deprioritize robotic male desktop voices
+              pts += 60;
             }
             if (!v.localService) pts += 20;
             return pts;
@@ -372,8 +384,8 @@ export class EarphoneSpeechEngine {
       }
 
       utterance.rate = rate;
-      // Slight pitch raise (1.05) to ensure a warm, natural female translator tone
-      utterance.pitch = Math.max(1.05, this.config.pitch || 1.05);
+      // Pitch set to 1.15 to guarantee a clear, natural feminine tone
+      utterance.pitch = 1.15;
       utterance.volume = this.config.volume;
       utterance.onend = () => resolve();
       utterance.onerror = () => resolve();

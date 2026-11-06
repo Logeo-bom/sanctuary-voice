@@ -180,29 +180,42 @@ export class EarphoneSpeechEngine {
     )}&q=${encodeURIComponent(text)}`;
 
     return new Promise<boolean>((resolve) => {
+      let resolved = false;
+      const done = (success: boolean) => {
+        if (!resolved) {
+          resolved = true;
+          this.currentAudio = null;
+          resolve(success);
+        }
+      };
+
+      // 3.5s timeout: if serverless audio endpoint hangs or fails, fall back to browser voice immediately!
+      const timer = window.setTimeout(() => {
+        done(false);
+      }, 3500);
+
       const audio = new Audio(proxyUrl);
       this.currentAudio = audio;
       audio.volume = this.config.volume;
       audio.playbackRate = rate;
 
-      // Keep vocal pitch natural when speeding up
       if ('preservesPitch' in audio) {
         audio.preservesPitch = true;
       }
 
       audio.onended = () => {
-        this.currentAudio = null;
-        resolve(true);
+        window.clearTimeout(timer);
+        done(true);
       };
 
       audio.onerror = () => {
-        this.currentAudio = null;
-        resolve(false);
+        window.clearTimeout(timer);
+        done(false);
       };
 
       audio.play().catch(() => {
-        this.currentAudio = null;
-        resolve(false);
+        window.clearTimeout(timer);
+        done(false);
       });
     });
   }

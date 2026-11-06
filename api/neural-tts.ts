@@ -1,11 +1,12 @@
-export default async function handler(request: Request) {
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const { searchParams } = new URL(request.url);
-    const text = (searchParams.get('q') || '').trim();
-    const lang = (searchParams.get('tl') || 'en').trim();
+    const text = ((req.query.q as string) || '').trim();
+    const lang = ((req.query.tl as string) || 'en').trim();
 
     if (!text) {
-      return new Response('Missing text', { status: 400 });
+      return res.status(400).send('Missing text parameter');
     }
 
     const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
@@ -15,27 +16,19 @@ export default async function handler(request: Request) {
     const upstream = await fetch(ttsUrl, {
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
       },
     });
 
     if (!upstream.ok) {
-      return new Response('TTS upstream error', { status: upstream.status });
+      return res.status(upstream.status).send('TTS upstream error');
     }
 
-    const audioBuffer = await upstream.arrayBuffer();
-
-    return new Response(audioBuffer, {
-      status: 200,
-      headers: {
-        'Content-Type': 'audio/mpeg',
-        'Cache-Control': 'public, max-age=3600',
-      },
-    });
+    const arrayBuffer = await upstream.arrayBuffer();
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(Buffer.from(arrayBuffer));
   } catch (err) {
-    return new Response(
-      err instanceof Error ? err.message : 'Internal TTS error',
-      { status: 500 }
-    );
+    return res.status(500).send(err instanceof Error ? err.message : 'Internal error');
   }
 }

@@ -38,6 +38,7 @@ import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
 const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
 const STORAGE_KEY_AI_PROVIDER = 'sanctuary_voice_ai_provider_v1';
+const STORAGE_KEY_SPEECH_CONFIG = 'sanctuary_voice_speech_config_v1';
 
 const DEFAULT_STAGE_SPEAKERS: StageSpeaker[] = [
   {
@@ -98,15 +99,21 @@ export function App() {
     frequencyBins: new Array(16).fill(0.05),
   });
 
-  const [speechConfig, setSpeechConfig] = useState<SpeechOutputConfig>({
-    enabled: true,
-    speechRate: 1.05,
-    pitch: 1.0,
-    volume: 1.0,
-    selectedVoiceURI: '',
-    earphoneOnlyGuard: true,
-    voiceEngine: 'neural-cloud',
-    geminiVoiceName: 'Aoede',
+  const [speechConfig, setSpeechConfig] = useState<SpeechOutputConfig>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SPEECH_CONFIG);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      enabled: true,
+      speechRate: 1.05,
+      pitch: 1.0,
+      volume: 1.0,
+      selectedVoiceURI: '',
+      earphoneOnlyGuard: true,
+      voiceEngine: 'neural-cloud',
+      geminiVoiceName: 'Aoede',
+    };
   });
 
   const [wallet, setWallet] = useState<PrepaidAccountState>({
@@ -1033,6 +1040,9 @@ export function App() {
             setSpeechConfig((prev) => {
               const updated = { ...prev, ...partial };
               speechEngineRef.current?.updateConfig(partial);
+              try {
+                localStorage.setItem(STORAGE_KEY_SPEECH_CONFIG, JSON.stringify(updated));
+              } catch {}
               return updated;
             });
           }}

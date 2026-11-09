@@ -243,9 +243,14 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div>
-              <label className="block text-[11px] text-slate-300 mb-1">
-                Voice Quality Engine
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] text-slate-300 font-medium">
+                  Voice Quality Engine
+                </label>
+                <span className="text-[10px] text-emerald-400 font-medium">
+                  ✓ Auto-saved
+                </span>
+              </div>
               <select
                 value={speechConfig.voiceEngine || 'neural-cloud'}
                 onChange={(e) =>
@@ -267,9 +272,14 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
 
             {speechConfig.voiceEngine === 'gemini-studio' && (
               <div>
-                <label className="block text-[11px] text-slate-300 mb-1">
-                  Gemini Studio Interpreter Voice
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] text-slate-300 font-medium">
+                    Gemini Studio Interpreter Voice
+                  </label>
+                  <span className="text-[10px] text-emerald-400 font-medium">
+                    ✓ Auto-saved
+                  </span>
+                </div>
                 <select
                   value={speechConfig.geminiVoiceName || 'Aoede'}
                   onChange={(e) =>

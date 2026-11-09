@@ -258,53 +258,58 @@ def create_deck():
     s6 = prs.slides.add_slide(blank_layout)
     add_slide_header(s6, "Prompt Engineering & Guardrails", "The Exact Prompts & Specs Applied Post-Dave Farley Review")
 
-    pbox1 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(2.0), Inches(11.33), Inches(2.3))
+    pbox1 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(2.0), Inches(11.33), Inches(2.4))
     pbox1.fill.solid()
     pbox1.fill.fore_color.rgb = COLOR_CARD
     pbox1.line.color.rgb = COLOR_ACCENT
     tf1 = pbox1.text_frame
     tf1.word_wrap = True
     pt1 = tf1.paragraphs[0]
-    pt1.text = "1. Sanctuary Multimodal Audio System Prompt (Gemini 2.5 Flash / Deepgram)"
-    pt1.font.size = Pt(14)
+    pt1.text = "1. AI System Prompt (Plain English Specification for LLM & Speech AI)"
+    pt1.font.size = Pt(15)
     pt1.font.bold = True
     pt1.font.color.rgb = COLOR_ACCENT
-    pbody1 = tf1.add_paragraph()
-    pbody1.text = (
-        "\"You are SanctuaryVoice, an expert theological and multilingual stage interpreter.\\n"
-        "INPUT: Raw streaming audio recorded inside a reverberant church auditorium.\\n"
-        "SPECIFICATIONS: 1. Diarize between Speaker 1 (Pulpit PA), Translator 2 (Stage Interpreter), and Ambient Congregation. "
-        "2. Duck or ignore persistent worship background instruments (keyboard organ pads, synth chords). "
-        "3. If ambient shouting or praying in the spirit occurs, tag as [Congregation Vocalization] and preserve pulpit sermon translation. "
-        "4. Translate into natural, dignified spoken ${targetLanguage} suitable for an attendee wearing earphones.\""
-    )
-    pbody1.font.size = Pt(11)
-    pbody1.font.color.rgb = COLOR_MUTED
-    pbody1.space_before = Pt(6)
 
-    pbox2 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(4.5), Inches(11.33), Inches(2.2))
+    prompt_bullets = [
+        "Role: Expert theological and multilingual church stage interpreter.",
+        "Input: Raw streaming microphone audio captured inside a reverberant church auditorium.",
+        "Specification 1: Diarize between Speaker 1 (Pulpit Pastor), Translator 2 (Stage Interpreter), and ambient congregation.",
+        "Specification 2: Duck or ignore persistent worship background instruments (organ chords, keyboard synth pads).",
+        "Specification 3: If ambient shouting or praying in tongues occurs, tag as [Congregation Vocalization] and preserve pulpit translation.",
+        "Specification 4: Translate into dignified, reverent language suitable for an attendee wearing earphones."
+    ]
+    for b in prompt_bullets:
+        p = tf1.add_paragraph()
+        p.text = "• " + b
+        p.font.size = Pt(11)
+        p.font.color.rgb = COLOR_WHITE
+        p.space_before = Pt(3)
+
+    pbox2 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(4.6), Inches(11.33), Inches(2.2))
     pbox2.fill.solid()
     pbox2.fill.fore_color.rgb = COLOR_CARD
     pbox2.line.color.rgb = COLOR_EMERALD
     tf2 = pbox2.text_frame
     tf2.word_wrap = True
     pt2 = tf2.paragraphs[0]
-    pt2.text = "2. Audio DSP Hardware Bypass Specification"
-    pt2.font.size = Pt(14)
+    pt2.text = "2. Audio Hardware & Filter Pipeline (How the Mic Pre-Cleans Sound)"
+    pt2.font.size = Pt(15)
     pt2.font.bold = True
     pt2.font.color.rgb = COLOR_EMERALD
-    pbody2 = tf2.add_paragraph()
-    pbody2.text = (
-        "getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })\\n"
-        "→ HighPassFilter(90Hz, Q=0.707) [strips AC & rumble]\\n"
-        "→ PeakingFilter(280Hz, gain=-6.5dB, Q=1.2) [worship synth pad notch cut]\\n"
-        "→ PeakingFilter(2400Hz, gain=+5.5dB, Q=1.0) [vocal consonant boost]\\n"
-        "→ GainNode(+22dB Pew Boost) → DynamicsCompressor(threshold=-30dB, ratio=6:1)\\n"
-        "→ Continuous WebSocket Stream (250ms timeslice with intact WebM header)"
-    )
-    pbody2.font.size = Pt(11)
-    pbody2.font.color.rgb = COLOR_MUTED
-    pbody2.space_before = Pt(6)
+
+    dsp_bullets = [
+        "Step 1 (Raw Mic Capture): Turn off phone noise cancellation so distant loudspeakers are not muted.",
+        "Step 2 (90Hz Low-Cut Filter): Strips out HVAC air conditioning rumble and stage floor vibrations.",
+        "Step 3 (280Hz Synth Notch Filter): Attenuates the muddy resonant frequencies of church organ pads (-6.5dB).",
+        "Step 4 (2.4kHz Voice Boost): Sharpens vocal consonants over background instruments (+5.5dB).",
+        "Step 5 (+22dB Pew Boost & Compressor): Boosts weak back-pew volume while compressing loud shouts so audio never distorts."
+    ]
+    for b in dsp_bullets:
+        p = tf2.add_paragraph()
+        p.text = "• " + b
+        p.font.size = Pt(11)
+        p.font.color.rgb = COLOR_WHITE
+        p.space_before = Pt(3)
 
     # --- SLIDE 7: Live Prototype Walkthrough ---
     s7 = prs.slides.add_slide(blank_layout)
@@ -398,8 +403,10 @@ def create_deck():
         p_desc.font.color.rgb = COLOR_MUTED
         p_desc.space_before = Pt(12)
 
-    prs.save("presentation_briefing.pptx")
-    print("Presentation saved successfully: presentation_briefing.pptx")
+    output_filename = "presentation_briefing_clean.pptx"
+    prs.save(output_filename)
+    print(f"Presentation saved successfully: {output_filename}")
 
 if __name__ == "__main__":
     create_deck()
+

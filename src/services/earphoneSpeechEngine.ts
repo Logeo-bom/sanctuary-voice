@@ -82,6 +82,7 @@ export class EarphoneSpeechEngine {
         this.currentAudio.onended = null;
         this.currentAudio.onerror = null;
         this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
         this.currentAudio.src = '';
       } catch {
         // Ignore
@@ -100,7 +101,11 @@ export class EarphoneSpeechEngine {
     }
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore
+      }
     }
   }
 
@@ -140,8 +145,9 @@ export class EarphoneSpeechEngine {
         );
       }
 
-      // 3. Fallback to best available browser/OS voice (prioritizing Natural/Online over robotic SAPI5)
-      if (!playedSuccessfully && this.stopGeneration === gen) {
+      // 3. Fallback to browser speech ONLY if user selected 'device' offline mode
+      // This strictly prevents the robotic Windows Microsoft David voice from playing during Cloud Neural mode!
+      if (!playedSuccessfully && engineMode === 'device' && this.stopGeneration === gen) {
         await this.playBrowserSpeechSynthesis(
           item.text,
           item.targetLanguageCode,
@@ -189,11 +195,6 @@ export class EarphoneSpeechEngine {
         }
       };
 
-      // 3.5s timeout: if serverless audio endpoint hangs or fails, fall back to browser voice immediately!
-      const timer = window.setTimeout(() => {
-        done(false);
-      }, 3500);
-
       const audio = new Audio(proxyUrl);
       this.currentAudio = audio;
       audio.volume = this.config.volume;
@@ -204,17 +205,14 @@ export class EarphoneSpeechEngine {
       }
 
       audio.onended = () => {
-        window.clearTimeout(timer);
         done(true);
       };
 
       audio.onerror = () => {
-        window.clearTimeout(timer);
         done(false);
       };
 
       audio.play().catch(() => {
-        window.clearTimeout(timer);
         done(false);
       });
     });

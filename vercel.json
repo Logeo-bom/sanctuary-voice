@@ -5,6 +5,10 @@
       "destination": "/api/neural-tts"
     },
     {
+      "source": "/api/deepgram-transcribe",
+      "destination": "/api/deepgram-transcribe"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

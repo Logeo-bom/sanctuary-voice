@@ -27,7 +27,33 @@ export async function transcribeAndTranslateWithDeepgram(params: {
   const t0 = performance.now();
   const cleanMime = params.mimeType.split(';')[0] || 'audio/webm';
 
-  // Deepgram Nova-2 / Nova-3 REST endpoint with diarization (separates speakers)
+  // Call serverless proxy endpoint to avoid browser CORS restrictions
+  const endpoint = '/api/deepgram-transcribe';
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'x-deepgram-key': params.deepgramApiKey.trim(),
+        'x-source-lang': params.sourceLanguageCode || 'auto',
+        'x-target-lang': params.targetLanguageCode || 'en',
+        'Content-Type': cleanMime,
+      },
+      body: params.audioBlob,
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        utterances: data.utterances || [],
+        latencyMs: Math.round(performance.now() - t0),
+      };
+    }
+  } catch {
+    // If proxy call fails, fall through to direct call
+  }
+
+  // Direct endpoint fallback (when in non-browser or CORS-enabled environments)
   const langQuery =
     params.sourceLanguageCode && params.sourceLanguageCode !== 'auto'
       ? `&language=${encodeURIComponent(params.sourceLanguageCode)}`

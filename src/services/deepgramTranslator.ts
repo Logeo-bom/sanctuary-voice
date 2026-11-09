@@ -144,3 +144,4 @@ async function translateTextFast(
     return text;
   }
 }
+

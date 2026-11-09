@@ -108,3 +108,4 @@ Show **https://sanctuary-voice.vercel.app/** on screen:
 
 ## 6. Takeaway for Bard's Team
 > *"The goal today is not to lock in design decisions, but to understand the real-world acoustic, linguistic, and economic constraints of churches so our AI stack solves the actual problem rather than building another toy translator."*
+

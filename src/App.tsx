@@ -32,6 +32,7 @@ import { ChurchAudioEngine } from './services/churchAudioEngine';
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
+import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 
@@ -149,6 +150,7 @@ export function App() {
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
   const fallbackEngineRef = useRef<BrowserLiveSpeechFallback | null>(null);
+  const deepgramWsRef = useRef<DeepgramLiveWebSocket | null>(null);
   const simulationTimerRef = useRef<number | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -501,6 +503,8 @@ export function App() {
     if (isListening) {
       audioEngineRef.current?.stop();
       audioEngineRef.current = null;
+      deepgramWsRef.current?.close();
+      deepgramWsRef.current = null;
       fallbackEngineRef.current?.stop();
       fallbackEngineRef.current = null;
       speechEngineRef.current?.stopAll();
@@ -510,9 +514,43 @@ export function App() {
 
     try {
       setErrorNotice(null);
+
+      // If Deepgram is selected and key present, connect direct low-latency WebSocket
+      if (aiProviderRef.current === 'deepgram' && deepgramKeyRef.current) {
+        const wsClient = new DeepgramLiveWebSocket(
+          deepgramKeyRef.current,
+          speaker1LangRef.current,
+          targetLangRef.current,
+          (seg) => {
+            upsertSpeakerAndAppendSegment({
+              speakerId: seg.speakerId,
+              speakerLabel: seg.speakerLabel,
+              roleHint: seg.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
+              sourceLanguageCode: seg.sourceLanguageCode,
+              sourceLanguageName: seg.sourceLanguageName,
+              originalText: seg.originalText,
+              translatedText: seg.translatedText,
+              latencyMs: seg.latencyMs,
+            });
+          },
+          (err) => {
+            setErrorNotice(err);
+          }
+        );
+
+        await wsClient.connect();
+        deepgramWsRef.current = wsClient;
+      }
+
       const engine = new ChurchAudioEngine(
         audioConfig,
-        handleAudioChunkReady,
+        (blob, mime, dur) => {
+          if (deepgramWsRef.current) {
+            deepgramWsRef.current.sendAudio(blob);
+          } else {
+            void handleAudioChunkReady(blob, mime, dur);
+          }
+        },
         (snapshot) => setMeter(snapshot)
       );
       await engine.start();

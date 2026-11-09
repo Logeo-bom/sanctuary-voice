@@ -16,13 +16,11 @@ export class ChurchAudioEngine {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
   private mediaRecorder: MediaRecorder | null = null;
-  private chunkIntervalId: number | null = null;
   private meterFrameId: number | null = null;
   private isRunning = false;
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
-  private chunkStartTime = 0;
 
   constructor(
     config: AudioProcessingConfig,
@@ -168,11 +166,6 @@ export class ChurchAudioEngine {
   public stop(): void {
     this.isRunning = false;
 
-    if (this.chunkIntervalId !== null) {
-      window.clearInterval(this.chunkIntervalId);
-      this.chunkIntervalId = null;
-    }
-
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);
       this.meterFrameId = null;
@@ -217,64 +210,27 @@ export class ChurchAudioEngine {
     if (!this.destinationNode || !this.isRunning) return;
 
     const mimeType = this.getSupportedMimeType();
-    const recordSegment = () => {
-      if (!this.isRunning || !this.destinationNode) return;
+    try {
+      const recorder = mimeType
+        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
+        : new MediaRecorder(this.destinationNode.stream);
 
-      const chunks: BlobPart[] = [];
-      this.chunkStartTime = performance.now();
-
-      try {
-        const recorder = mimeType
-          ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 32000 })
-          : new MediaRecorder(this.destinationNode.stream);
-
-        recorder.ondataavailable = (ev) => {
-          if (ev.data && ev.data.size > 0) {
-            chunks.push(ev.data);
-          }
-        };
-
-        recorder.onstop = () => {
-          const durationMs = Math.round(performance.now() - this.chunkStartTime);
-          // Send audio chunk if there is audio data (relaxed silence gate for distant speakers)
-          if (chunks.length > 0) {
-            const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-            const blob = new Blob(chunks, { type: actualMime });
-            if (blob.size > 200) {
-              this.onAudioChunk(blob, actualMime, durationMs);
-            }
-          }
-        };
-
-        this.mediaRecorder = recorder;
-        recorder.start();
-      } catch (err) {
-        console.error('Failed to start segmented audio recorder:', err);
-      }
-    };
-
-    recordSegment();
-
-    // 3.5 second audio slice intervals for faster real-time translation dispatch
-    const intervalMs = Math.max(2000, Math.min(8000, this.config.chunkDurationSec * 1000));
-    this.chunkIntervalId = window.setInterval(() => {
-      if (!this.isRunning) return;
-      if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-        try {
-          this.mediaRecorder.stop();
-        } catch {
-          // Ignore stop race condition
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0 && this.isRunning) {
+          const actualMime = recorder.mimeType || mimeType || 'audio/webm';
+          this.onAudioChunk(ev.data, actualMime, 250);
         }
-      }
-      recordSegment();
-    }, intervalMs);
+      };
+
+      this.mediaRecorder = recorder;
+      // Start continuous streaming slices every 250ms with intact WebM header in chunk 0
+      recorder.start(250);
+    } catch (err) {
+      console.error('Failed to start continuous audio recorder:', err);
+    }
   }
 
   private restartSegmentedRecorder(): void {
-    if (this.chunkIntervalId !== null) {
-      window.clearInterval(this.chunkIntervalId);
-      this.chunkIntervalId = null;
-    }
     if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
       try {
         this.mediaRecorder.stop();

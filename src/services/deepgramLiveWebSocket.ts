@@ -44,8 +44,8 @@ export class DeepgramLiveWebSocket {
             ? `&language=${encodeURIComponent(this.sourceLang)}`
             : '&detect_language=true';
 
-        // Deepgram live WebSocket URL (Bypasses HTTP CORS entirely in browsers!)
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&diarize=true&punctuate=true&smart_format=true&interim_results=true${langParam}`;
+        // Deepgram live WebSocket URL with endpointing=500ms and utterance_end_ms=1000ms for continuous sentence translation
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&diarize=true&punctuate=true&smart_format=true&endpointing=500&utterance_end_ms=1000${langParam}`;
 
         this.socket = new WebSocket(wsUrl, ['token', this.apiKey]);
 

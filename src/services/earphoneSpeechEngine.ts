@@ -62,7 +62,11 @@ export class EarphoneSpeechEngine {
       return;
     }
 
-    this.stopAll();
+    // Do NOT stop existing audio if it's currently speaking; queue it smoothly!
+    // If the queue has gotten more than 3 items behind, drop older items to keep up with live speech
+    if (this.queue.length > 3) {
+      this.queue = this.queue.slice(-2);
+    }
 
     // Split into natural clauses for fast streaming
     const clauses = this.splitIntoClauses(cleaned, 175);

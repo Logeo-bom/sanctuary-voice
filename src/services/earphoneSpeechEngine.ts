@@ -5,6 +5,8 @@ interface QueuedSpeechItem {
   text: string;
   targetLanguageCode: string;
   apiKey?: string;
+  isLastClause?: boolean;
+  onEnded?: () => void;
 }
 
 export class EarphoneSpeechEngine {
@@ -47,29 +49,30 @@ export class EarphoneSpeechEngine {
     text: string,
     targetLanguageCode: string,
     forcePlay = false,
-    apiKey?: string
+    apiKey?: string,
+    onEndedCallback?: () => void
   ): void {
-    if (!forcePlay && !this.config.enabled) return;
+    if (!forcePlay && !this.config.enabled) {
+      if (onEndedCallback) onEndedCallback();
+      return;
+    }
     const cleaned = text.trim();
-    if (!cleaned) return;
-
-    if (forcePlay) {
-      this.stopAll();
-    } else {
-      // In live stream/demo: drop previous pending speech so you only hear the latest translated sentence!
-      // This prevents sentences from queuing up and playing late with overlapping voices.
-      if (this.queue.length > 0) {
-        this.queue = [];
-      }
+    if (!cleaned) {
+      if (onEndedCallback) onEndedCallback();
+      return;
     }
 
-    // Split long sentences into natural <175 char clauses for fast neural streaming
+    this.stopAll();
+
+    // Split into natural clauses for fast streaming
     const clauses = this.splitIntoClauses(cleaned, 175);
-    for (const clause of clauses) {
+    for (let i = 0; i < clauses.length; i++) {
       this.queue.push({
-        text: clause,
+        text: clauses[i],
         targetLanguageCode,
         apiKey,
+        isLastClause: i === clauses.length - 1,
+        onEnded: i === clauses.length - 1 ? onEndedCallback : undefined,
       });
     }
 
@@ -158,6 +161,12 @@ export class EarphoneSpeechEngine {
           item.targetLanguageCode,
           effectiveRate
         );
+      }
+
+      if (item.onEnded && this.stopGeneration === gen) {
+        try {
+          item.onEnded();
+        } catch {}
       }
     }
 

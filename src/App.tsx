@@ -563,7 +563,10 @@ export function App() {
     setErrorNotice(null);
 
     let stepIndex = 0;
-    const runStep = () => {
+
+    const playNextStep = () => {
+      if (!simulationTimerRef.current) return;
+
       const step = preset.steps[stepIndex % preset.steps.length];
       const translated =
         step.translations[targetLangRef.current] ||
@@ -590,19 +593,29 @@ export function App() {
         originalText: step.originalText,
         translatedText: translated,
         backgroundNoiseNote: step.backgroundNoiseNote,
-        latencyMs: 520,
+        latencyMs: 350,
       });
 
       stepIndex++;
+
+      // Intelligent Church Timing:
+      // If Speaker 1 speaks into earphones, wait for the voice to finish speaking + natural breath pause (1.2s),
+      // then advance to the next phrase. This guarantees the voice is NEVER cut off or lagging behind the text!
+      if (step.speakerId === 'speaker_1') {
+        const estimatedDurationMs = Math.max(3800, (translated.length / 15) * 1000);
+        simulationTimerRef.current = window.setTimeout(playNextStep, estimatedDurationMs + 1200);
+      } else {
+        // Filtered shouting / background translation: display card for 2.8 seconds, then next speaker
+        simulationTimerRef.current = window.setTimeout(playNextStep, 2800);
+      }
     };
 
-    runStep();
-    simulationTimerRef.current = window.setInterval(runStep, 4600);
+    simulationTimerRef.current = window.setTimeout(playNextStep, 200);
   };
 
   const stopStageSimulation = () => {
     if (simulationTimerRef.current !== null) {
-      window.clearInterval(simulationTimerRef.current);
+      window.clearTimeout(simulationTimerRef.current);
       simulationTimerRef.current = null;
     }
     speechEngineRef.current?.stopAll();

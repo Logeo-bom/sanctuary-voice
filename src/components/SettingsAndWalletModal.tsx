@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   Sparkles,
   Clock,
+  Radio,
+  Zap,
 } from 'lucide-react';
 import type {
   PrepaidAccountState,
@@ -19,6 +21,10 @@ interface SettingsAndWalletModalProps {
   onClose: () => void;
   apiKey: string;
   onSaveApiKey: (key: string) => void;
+  deepgramKey: string;
+  onSaveDeepgramKey: (key: string) => void;
+  activeAiProvider: 'deepgram' | 'gemini';
+  onSelectAiProvider: (provider: 'deepgram' | 'gemini') => void;
   speechConfig: SpeechOutputConfig;
   onChangeSpeechConfig: (partial: Partial<SpeechOutputConfig>) => void;
   wallet: PrepaidAccountState;
@@ -30,21 +36,34 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   onClose,
   apiKey,
   onSaveApiKey,
+  deepgramKey,
+  onSaveDeepgramKey,
+  activeAiProvider,
+  onSelectAiProvider,
   speechConfig,
   onChangeSpeechConfig,
   wallet,
   onTopUpMinutes,
 }) => {
-  const [draftKey, setDraftKey] = useState(apiKey);
-  const [savedNotice, setSavedNotice] = useState(false);
+  const [draftGeminiKey, setDraftGeminiKey] = useState(apiKey);
+  const [draftDeepgramKey, setDraftDeepgramKey] = useState(deepgramKey);
+  const [savedGeminiNotice, setSavedGeminiNotice] = useState(false);
+  const [savedDgNotice, setSavedDgNotice] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSaveKey = (e: React.FormEvent) => {
+  const handleSaveGemini = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveApiKey(draftKey.trim());
-    setSavedNotice(true);
-    window.setTimeout(() => setSavedNotice(false), 2000);
+    onSaveApiKey(draftGeminiKey.trim());
+    setSavedGeminiNotice(true);
+    window.setTimeout(() => setSavedGeminiNotice(false), 2000);
+  };
+
+  const handleSaveDeepgram = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSaveDeepgramKey(draftDeepgramKey.trim());
+    setSavedDgNotice(true);
+    window.setTimeout(() => setSavedDgNotice(false), 2000);
   };
 
   return (
@@ -54,35 +73,129 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-sky-400" />
             <h2 className="text-base font-bold text-slate-100">
-              AI Engine, Earphone Voice &amp; Pre-Paid Sanctuary Pass
+              AI Engines, Earphone Voice &amp; Token Credits
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 1. Gemini API Key Configuration */}
-        <form onSubmit={handleSaveKey} className="space-y-2.5">
+        {/* 1. Primary AI Engine Switcher (Deepgram Nova-2 vs Gemini 2.5 Flash) */}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+            <Radio className="w-4 h-4 text-sky-400" />
+            Live Church Speech-to-Text &amp; Translation Engine
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onSelectAiProvider('deepgram')}
+              className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                activeAiProvider === 'deepgram'
+                  ? 'bg-sky-500/15 border-sky-400 text-white shadow-lg'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-sky-300 flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5" /> Deepgram Nova-2
+                </span>
+                {activeAiProvider === 'deepgram' && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 leading-tight">
+                World's fastest diarization (&lt;300ms) • Uses your <strong>$200 free credit (~770 hrs free)</strong>
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onSelectAiProvider('gemini')}
+              className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                activeAiProvider === 'gemini'
+                  ? 'bg-emerald-500/15 border-emerald-400 text-white shadow-lg'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-emerald-300 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" /> Gemini 2.5 Flash
+                </span>
+                {activeAiProvider === 'gemini' && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 leading-tight">
+                Multimodal raw audio understanding • Great for regional dialects &amp; biblical terms
+              </p>
+            </button>
+          </div>
+        </div>
+
+        {/* 2. Deepgram API Key (with $200 free credit) */}
+        <form onSubmit={handleSaveDeepgram} className="space-y-2 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor="deepgram-api-key-input"
+              className="text-xs font-semibold text-sky-300 flex items-center gap-1.5"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-sky-400" />
+              Deepgram API Key ($200 Free Developer Credit)
+            </label>
+            {deepgramKey ? (
+              <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Key Connected
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded">
+                Paste your key here
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              id="deepgram-api-key-input"
+              type="password"
+              value={draftDeepgramKey}
+              onChange={(e) => setDraftDeepgramKey(e.target.value)}
+              placeholder="Paste Deepgram key here (stays safe in your browser only)..."
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500"
+            />
+            <button
+              type="submit"
+              className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition cursor-pointer"
+            >
+              {savedDgNotice ? 'Saved!' : 'Save Key'}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Enables instant speaker diarization (separates Pastor from shouting congregation members in Portuguese/English).
+          </p>
+        </form>
+
+        {/* 3. Gemini API Key Configuration (Optional) */}
+        <form onSubmit={handleSaveGemini} className="space-y-2 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
           <div className="flex items-center justify-between">
             <label
               htmlFor="gemini-api-key-input"
-              className="text-xs font-semibold text-slate-200 flex items-center gap-1.5"
+              className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5"
             >
-              <KeyRound className="w-4 h-4 text-sky-400" />
-              Gemini 2.5 Flash API Key (Multimodal Stage Audio + Dialect Engine)
+              <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
+              Gemini 2.5 Flash API Key (Optional)
             </label>
             {apiKey ? (
               <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Key Active
+                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
               </span>
             ) : (
-              <span className="text-[11px] text-amber-300">
-                Optional for Demo • Required for Live Mic AI
+              <span className="text-[10px] text-slate-400">
+                Optional
               </span>
             )}
           </div>
@@ -90,24 +203,21 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
             <input
               id="gemini-api-key-input"
               type="password"
-              value={draftKey}
-              onChange={(e) => setDraftKey(e.target.value)}
+              value={draftGeminiKey}
+              onChange={(e) => setDraftGeminiKey(e.target.value)}
               placeholder="AIzaSy..."
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500"
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
             />
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs transition"
+              className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
             >
-              {savedNotice ? 'Saved!' : 'Save Key'}
+              {savedGeminiNotice ? 'Saved!' : 'Save Key'}
             </button>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Processes DSP-boosted audio directly with Gemini 2.5 Flash to separate multiple speakers on stage, identify regional dialects, and ignore worship synth pads.
-          </p>
         </form>
 
-        {/* 2. Priority 2: Earphone Speech-to-Speech (TTS) Configuration */}
+        {/* 4. Priority 2: Earphone Speech-to-Speech (TTS) Configuration */}
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -121,7 +231,7 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
               onClick={() =>
                 onChangeSpeechConfig({ enabled: !speechConfig.enabled })
               }
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
                 speechConfig.enabled
                   ? 'bg-emerald-500 text-slate-950'
                   : 'bg-slate-800 text-slate-400'
@@ -146,7 +256,7 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
               >
                 <option value="neural-cloud">
-                  Cloud Neural Voice (Natural, Fast — Default)
+                  Cloud Neural Voice (Natural Female — Free)
                 </option>
                 <option value="gemini-studio">
                   Gemini 2.5 Studio Voice (Requires Gemini Key)
@@ -181,57 +291,15 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
               </div>
             )}
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div>
-              <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                <span>Interpreter Speaking Speed</span>
-                <span className="font-mono text-sky-400">
-                  {speechConfig.speechRate.toFixed(2)}x
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.85}
-                max={1.35}
-                step={0.05}
-                value={speechConfig.speechRate}
-                onChange={(e) =>
-                  onChangeSpeechConfig({ speechRate: Number(e.target.value) })
-                }
-                className="w-full accent-emerald-400 cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[11px] text-slate-300 mb-1">
-                <span>Earphone Volume</span>
-                <span className="font-mono text-sky-400">
-                  {Math.round(speechConfig.volume * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.2}
-                max={1.0}
-                step={0.05}
-                value={speechConfig.volume}
-                onChange={(e) =>
-                  onChangeSpeechConfig({ volume: Number(e.target.value) })
-                }
-                className="w-full accent-emerald-400 cursor-pointer"
-              />
-            </div>
-          </div>
         </div>
 
-        {/* 3. Pre-Paid Token Financing Pass (Bard's Business Model) */}
+        {/* 5. Pre-Paid Token Financing Pass (Bard's Business Model) */}
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Wallet className="w-4 h-4 text-amber-400" />
               <span className="text-xs font-semibold text-slate-100">
-                Pre-Paid Translation Minutes (Finances AI Tokens)
+                Pre-Paid Translation Minutes (Token Financing)
               </span>
             </div>
             <span className="text-xs font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
@@ -249,36 +317,36 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
             <button
               type="button"
               onClick={() => onTopUpMinutes(90, 'Single Service Pass')}
-              className="p-2.5 rounded-xl border border-slate-800 hover:border-sky-500/50 bg-slate-900 text-left transition"
+              className="p-2.5 rounded-xl border border-slate-800 hover:border-sky-500/50 bg-slate-900 text-left transition cursor-pointer"
             >
               <div className="text-xs font-bold text-slate-100">+90 Minutes</div>
               <div className="text-[11px] text-sky-400 font-semibold">$1.99 Pre-Paid</div>
               <div className="text-[10px] text-slate-400 mt-0.5">
-                Covers 1 full church service
+                1 full church service
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => onTopUpMinutes(360, 'Monthly Believer Pack')}
-              className="p-2.5 rounded-xl border border-sky-500/40 hover:border-sky-400 bg-sky-500/10 text-left transition"
+              className="p-2.5 rounded-xl border border-sky-500/40 hover:border-sky-400 bg-sky-500/10 text-left transition cursor-pointer"
             >
               <div className="text-xs font-bold text-slate-100">+360 Minutes</div>
               <div className="text-[11px] text-sky-300 font-semibold">$5.99 Pre-Paid</div>
               <div className="text-[10px] text-slate-300 mt-0.5">
-                4 Sunday sermons + fellowship
+                4 Sunday services
               </div>
             </button>
 
             <button
               type="button"
               onClick={() => onTopUpMinutes(1500, 'Visiting Congregation Pack')}
-              className="p-2.5 rounded-xl border border-slate-800 hover:border-amber-500/50 bg-slate-900 text-left transition"
+              className="p-2.5 rounded-xl border border-slate-800 hover:border-amber-500/50 bg-slate-900 text-left transition cursor-pointer"
             >
               <div className="text-xs font-bold text-slate-100">+1,500 Minutes</div>
               <div className="text-[11px] text-amber-300 font-semibold">$19.99 Pre-Paid</div>
               <div className="text-[10px] text-slate-400 mt-0.5">
-                Conference / Mission trip pack
+                Mission trip / conference
               </div>
             </button>
           </div>

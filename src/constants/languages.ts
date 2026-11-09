@@ -10,6 +10,14 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     dialectExamples: ['Southern US', 'Oxford / RP', 'Scottish', 'West African', 'Australian'],
   },
   {
+    code: 'pt',
+    bcp47: 'pt-BR',
+    name: 'Portuguese',
+    nativeName: 'Português',
+    flag: '🇧🇷',
+    dialectExamples: ['Brazilian (Paulista / Carioca / Nordestino)', 'European', 'Angolan'],
+  },
+  {
     code: 'no',
     bcp47: 'nb-NO',
     name: 'Norwegian',
@@ -48,14 +56,6 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     nativeName: 'Deutsch',
     flag: '🇩🇪',
     dialectExamples: ['Swiss German (Schwiizerdütsch)', 'Standard Hochdeutsch', 'Austrian', 'Bavarian'],
-  },
-  {
-    code: 'pt',
-    bcp47: 'pt-BR',
-    name: 'Portuguese',
-    nativeName: 'Português',
-    flag: '🇧🇷',
-    dialectExamples: ['Brazilian (Paulista / Carioca / Nordestino)', 'European', 'Angolan'],
   },
   {
     code: 'uk',
@@ -100,8 +100,8 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
 ];
 
 export const SPEAKER_PALETTE = [
-  '#38bdf8', // Sky Blue - Speaker 1
-  '#fbbf24', // Amber - Translator 2
+  '#38bdf8', // Sky Blue - Speaker 1 (Pulpit Pastor)
+  '#fbbf24', // Amber - Translator 2 / Shouting Congregation member
   '#34d399', // Emerald - Speaker 3
   '#c084fc', // Purple - Speaker 4
 ];
@@ -109,6 +109,7 @@ export const SPEAKER_PALETTE = [
 export interface StageSimulationPreset {
   id: string;
   title: string;
+  badge: string;
   description: string;
   speakers: StageSpeaker[];
   steps: Array<{
@@ -125,10 +126,106 @@ export interface StageSimulationPreset {
 
 export const STAGE_SIMULATION_PRESETS: StageSimulationPreset[] = [
   {
-    id: 'bilingual-preacher-interpreter',
-    title: 'Dual-Stage: Southern US Preacher + Swiss French Interpreter (over Synth Pad)',
+    id: 'brazilian-church-test',
+    title: 'Brazilian Church: Preacher in Portuguese + Shouting in the Spirit Filtered',
+    badge: 'Bard’s Sunday Visit',
     description:
-      'Simulates Bard’s core test case: Speaker 1 preaches in Southern American English while Translator 2 translates on stage into Swiss French, with a worship synth pad playing softly.',
+      'Solves Bard’s exact challenge from Sunday: Pastor preaches in Brazilian Portuguese on the PA while a lady in the congregation sings and shouts in the spirit. Shouting is recognized as non-pastor speech and muted in the listener’s earphones.',
+    speakers: [
+      {
+        id: 'speaker_1',
+        label: 'Pastor (Pulpit PA)',
+        roleHint: 'main-speaker',
+        detectedLanguageCode: 'pt',
+        detectedLanguageName: 'Portuguese',
+        detectedDialect: 'Brazilian Portuguese (Preaching)',
+        accentColor: '#38bdf8',
+        segmentCount: 0,
+        lastActiveAt: Date.now(),
+        isIgnored: false,
+      },
+      {
+        id: 'speaker_2',
+        label: 'Lady Shouting / In the Spirit (Floor)',
+        roleHint: 'worship-leader',
+        detectedLanguageCode: 'pt',
+        detectedLanguageName: 'Ecstatic Prayer',
+        detectedDialect: 'Pentecostal Glossolalia / Singing',
+        accentColor: '#fbbf24',
+        segmentCount: 0,
+        lastActiveAt: Date.now(),
+        isIgnored: true, // Muted by default so listener only hears sermon!
+      },
+    ],
+    steps: [
+      {
+        speakerId: 'speaker_1',
+        speakerLabel: 'Pastor (Pulpit PA)',
+        sourceLanguageCode: 'pt',
+        sourceLanguageName: 'Portuguese',
+        detectedDialect: 'Brazilian Portuguese',
+        originalText:
+          'Abram a palavra de Deus no livro dos Salmos, capítulo vinte e três: o Senhor é o meu pastor e nada me faltará!',
+        backgroundNoiseNote: 'Church PA Acoustics + Pre-Amp +12dB',
+        translations: {
+          no: 'Slå opp i Guds ord i Salmenes bok, kapittel tjuetre: Herren er min hyrde, jeg mangler ingenting!',
+          en: 'Open the word of God in the book of Psalms, chapter twenty-three: the Lord is my shepherd, I shall not want!',
+          tl: 'Buksan ninyo ang salita ng Diyos sa aklat ng Mga Awit, kabanata dalawampu’t tatlo: Ang Panginoon ang aking pastol, hindi ako magkukulang!',
+          fr: "Ouvrez la parole de Dieu dans le livre des Psaumes, chapitre vingt-trois : l'Éternel est mon berger, je ne manquerai de rien !",
+          es: 'Abran la palabra de Dios en el libro de los Salmos, capítulo veintitrés: ¡El Señor es mi pastor, nada me faltará!',
+          de: 'Schlagt das Wort Gottes im Buch der Psalmen auf, Kapitel dreiundzwanzig: Der Herr ist mein Hirte, mir wird nichts mangeln!',
+          pt: 'Abram a palavra de Deus no livro dos Salmos, capítulo vinte e três: o Senhor é o meu pastor e nada me faltará!',
+          uk: 'Відкрийте слово Боже в книзі Псалмів, двадцять третій розділ: Господь — мій пастир, я ні в чому не матиму потреби!',
+        },
+      },
+      {
+        speakerId: 'speaker_2',
+        speakerLabel: 'Lady Shouting / In the Spirit (Floor)',
+        sourceLanguageCode: 'pt',
+        sourceLanguageName: 'Ecstatic Prayer',
+        detectedDialect: 'Singing in the Spirit (Non-Lexical)',
+        originalText:
+          'Glória a Deus! Aleluia! Rabashanda lamana... Ele é santo, Ele é digno!',
+        backgroundNoiseNote: 'Congregation Shouting Filtered • Muted in Earphones',
+        translations: {
+          no: '[Menighetsrop/Åndelig lovprisning filtrert bort]',
+          en: '[Congregation shouting / singing in the spirit filtered out]',
+          tl: '[Pagsigaw/panalangin sa espiritu ay sinala at hindi pinatugtog]',
+          fr: '[Cris de louange dans l’esprit filtrés]',
+          es: '[Clamor en el espíritu filtrado]',
+          de: '[Gemeinderufe im Geist herausgefiltert]',
+          pt: '[Clamor da congregação no espírito filtrado]',
+          uk: '[Вигуки та молитва в дусі відфільтровані]',
+        },
+      },
+      {
+        speakerId: 'speaker_1',
+        speakerLabel: 'Pastor (Pulpit PA)',
+        sourceLanguageCode: 'pt',
+        sourceLanguageName: 'Portuguese',
+        detectedDialect: 'Brazilian Portuguese',
+        originalText:
+          'Ainda que eu ande pelo vale da sombra da morte, não temerei mal algum, porque a Tua graça está comigo!',
+        backgroundNoiseNote: 'Pre-Amp +12dB • Synth Pad Ducked',
+        translations: {
+          no: 'Selv om jeg går i dødsskyggens dal, frykter jeg intet ondt, for Din nåde er med meg!',
+          en: 'Even though I walk through the valley of the shadow of death, I will fear no evil, for Your grace is with me!',
+          tl: 'Kahit lumakad man ako sa libis ng lilim ng kamatayan, hindi ako matatakot sa anumang kasamaan, sapagkat ang Iyong biyaya ay sumasaakin!',
+          fr: "Même quand je marche dans la vallée de l'ombre de la mort, je ne crains aucun mal, car Ta grâce est avec moi !",
+          es: '¡Aunque ande en valle de sombra de muerte, no temeré mal alguno, porque Tu gracia está conmigo!',
+          de: 'Und ob ich schon wanderte im finstern Tal, fürchte ich kein Unglück, denn Deine Gnade ist bei mir!',
+          pt: 'Ainda que eu ande pelo vale da sombra da morte, não temerei mal algum, porque a Tua graça está comigo!',
+          uk: 'Навіть якщо я піду долиною смертної тіні, не побоюся зла, бо Твоя благодать зі мною!',
+        },
+      },
+    ],
+  },
+  {
+    id: 'bilingual-preacher-interpreter',
+    title: 'Dual-Stage: Southern US Preacher + Swiss French Interpreter',
+    badge: 'Dual-Language Stage',
+    description:
+      'Speaker 1 preaches in Southern American English while Translator 2 translates on stage into Swiss French, with a worship synth pad playing softly.',
     speakers: [
       {
         id: 'speaker_1',
@@ -174,10 +271,6 @@ export const STAGE_SIMULATION_PRESETS: StageSimulationPreset[] = [
           de: 'Hört jetzt gut zu – selbst wenn der Sturm um euer Boot tobt, wird die Gnade euch nicht sinken lassen.',
           pt: 'Ouçam com atenção agora — mesmo quando a tempestade estiver rugindo ao redor do seu barco, a graça não vai deixar você afundar.',
           uk: 'Слухайте уважно зараз — навіть коли буря вирує навколо вашого човна, благодать не дасть вам потонути.',
-          ko: '지금 잘 들으십시오. 폭풍이 여러분의 배 주위에 몰아쳐도 하나님의 은혜는 여러분이 가라앉게 두지 않을 것입니다.',
-          sw: 'Sikilizeni kwa makini sasa — hata dhoruba inapovuma kuzunguka mashua yako, neema haitakuacha uzame.',
-          ar: 'استمعوا جيداً الآن — حتى عندما تعصف العاصفة حول قاربكم، فإن النعمة لن تدعكم تغرقون.',
-          zh: '大家现在仔细听——即使暴风雨在你的船周围肆虐，恩典也绝不会让你沉没。',
         },
       },
       {
@@ -198,10 +291,6 @@ export const STAGE_SIMULATION_PRESETS: StageSimulationPreset[] = [
           de: 'Hört jetzt zu – selbst wenn das Gewitter hart gegen das Boot schlägt, lässt Gottes Gnade euch keine Sekunde los.',
           pt: 'Ouçam agora — mesmo quando a tempestade bate forte contra o barco, a graça de Deus não te solta nem por um segundo.',
           uk: 'Послухайте зараз — навіть коли гроза сильно б’є об човен, Божа благодать не відпускає вас ні на секунду.',
-          ko: '잘 들어보세요 — 폭풍우가 배를 세차게 때릴 때에도 하나님의 은혜는 단 일 초도 여러분을 놓지 않으십니다.',
-          sw: 'Sikilizeni sasa — hata wakati dhoruba inapopiga mashua kwa nguvu, neema ya Mungu haikuachi hata kwa sekunde moja.',
-          ar: 'اسمعوا الآن — حتى عندما تضرب العاصفة القارب بقوة، فإن نعمة الله لا تترككم ولا لثانية واحدة.',
-          zh: '现在请听——即使暴风雨猛烈击打船只，上帝的恩典也一秒钟都不会放开你。',
         },
       },
       {
@@ -222,34 +311,6 @@ export const STAGE_SIMULATION_PRESETS: StageSimulationPreset[] = [
           de: 'Schlagt den Brief des Paulus an die Römer Kapitel acht auf: So gibt es jetzt keine Verdammnis mehr für die, welche im Geist wandeln.',
           pt: 'Abram a carta de Paulo aos Romanos, capítulo oito: portanto, agora já não há condenação para os que caminham no Espírito.',
           uk: 'Відкрийте послання Павла до Римлян, восьмий розділ: отже, немає тепер жодного осуду тим, які ходять у Дусі.',
-          ko: '바울의 로마서 8장을 펴십시오. 그러므로 이제 성령 안에서 행하는 자에게는 결코 정죄함이 없습니다.',
-          sw: 'Fungueni waraka wa Paulo kwa Warumi sura ya nane: sasa basi hakuna hukumu ya adhabu juu yao체 waendao kwa جinsi ya Roho.',
-          ar: 'افتحوا رسالة بولس إلى أهل رومية الإصحاح الثامن: إذاً لا شيء من الدينونة الآن على الذين يسلكون في الروح.',
-          zh: '请翻开保罗达罗马人书第八章：如今那些在圣灵里行事的人，就不定罪了。',
-        },
-      },
-      {
-        speakerId: 'speaker_2',
-        speakerLabel: 'Translator 2',
-        sourceLanguageCode: 'fr',
-        sourceLanguageName: 'French',
-        detectedDialect: 'Swiss French (Vaudois/Romand)',
-        originalText:
-          "Prenez voir Romains chapitre huitante... euh huit : il n'y a donc plus aucune condamnation pour ceux qui marchent selon l'Esprit.",
-        backgroundNoiseNote: 'Synth Swell + Distant PA Echo',
-        translations: {
-          no: 'Slå opp i Romerbrevet kapittel åtte: det er derfor ikke lenger noen fordømmelse for dem som vandrer etter Ånden.',
-          en: 'Turn to Romans chapter eight: there is therefore no longer any condemnation for those who walk according to the Spirit.',
-          tl: 'Tingnan natin ang Roma kabanata walo: kaya wala nang kahatulan pa para sa mga namumuhay ayon sa Espiritu.',
-          fr: "Prenez Romains chapitre huit : il n'y a donc plus aucune condamnation pour ceux qui marchent selon l'Esprit.",
-          es: 'Busquen Romanos capítulo ocho: por tanto, ya no hay ninguna condenación para los que caminan según el Espíritu.',
-          de: 'Nehmt Römer Kapitel acht: Es gibt also keine Verdammnis mehr für die, welche nach dem Geist wandeln.',
-          pt: 'Pegue Romanos capítulo oito: portanto, não há mais nenhuma condenação para aqueles que andam segundo o Espírito.',
-          uk: 'Візьміть Римлян восьмий розділ: отже, немає більше жодного осуду для тих, хто ходить за Духом.',
-          ko: '로마서 8장을 보십시오. 성령을 따라 행하는 사람들에게는 더 이상 아무런 정죄함이 없습니다.',
-          sw: 'Geukieni Warumi sura ya nane: kwa hiyo sasa hakuna tena hukumu kwa wale wanaotembea kwa kufuata Roho.',
-          ar: 'انتقلوا إلى رومية الإصحاح الثامن: لم يعد هناك أي دينونة للذين يسلكون بحسب الروح.',
-          zh: '请看罗马书第八章：因此，那些随从圣灵而行的人，就不再被定罪了。',
         },
       },
     ],

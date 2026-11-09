@@ -31,10 +31,13 @@ import {
 import { ChurchAudioEngine } from './services/churchAudioEngine';
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
+import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 
 const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
+const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
+const STORAGE_KEY_AI_PROVIDER = 'sanctuary_voice_ai_provider_v1';
 
 const DEFAULT_STAGE_SPEAKERS: StageSpeaker[] = [
   {
@@ -119,6 +122,17 @@ export function App() {
     return localStorage.getItem(STORAGE_KEY_GEMINI) || envKey || '';
   });
 
+  const [deepgramKey, setDeepgramKey] = useState<string>(() => {
+    const envKey = import.meta.env.VITE_DEEPGRAM_API_KEY as string | undefined;
+    return localStorage.getItem(STORAGE_KEY_DEEPGRAM) || envKey || '';
+  });
+
+  const [aiProvider, setAiProvider] = useState<'deepgram' | 'gemini'>(() => {
+    return (localStorage.getItem(STORAGE_KEY_AI_PROVIDER) as 'deepgram' | 'gemini') || 'deepgram';
+  });
+
+  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(0);
+
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
   const [isSimulatingStage, setIsSimulatingStage] = useState<boolean>(false);
@@ -141,6 +155,10 @@ export function App() {
   voiceViewModeRef.current = voiceViewMode;
   const apiKeyRef = useRef<string>(apiKey);
   apiKeyRef.current = apiKey;
+  const deepgramKeyRef = useRef<string>(deepgramKey);
+  deepgramKeyRef.current = deepgramKey;
+  const aiProviderRef = useRef<'deepgram' | 'gemini'>(aiProvider);
+  aiProviderRef.current = aiProvider;
   const segmentsRef = useRef<TranslationSegment[]>(segments);
   segmentsRef.current = segments;
 
@@ -229,6 +247,21 @@ export function App() {
     } else {
       localStorage.removeItem(STORAGE_KEY_GEMINI);
     }
+  };
+
+  const handleSaveDeepgramKey = (newKey: string) => {
+    setDeepgramKey(newKey);
+    if (newKey) {
+      localStorage.setItem(STORAGE_KEY_DEEPGRAM, newKey);
+      setErrorNotice(null);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_DEEPGRAM);
+    }
+  };
+
+  const handleSelectAiProvider = (provider: 'deepgram' | 'gemini') => {
+    setAiProvider(provider);
+    localStorage.setItem(STORAGE_KEY_AI_PROVIDER, provider);
   };
 
   const cycleDistanceBoost = () => {
@@ -345,58 +378,108 @@ export function App() {
 
   const handleAudioChunkReady = useCallback(
     async (audioBlob: Blob, mimeType: string, durationMs: number) => {
-      if (!apiKeyRef.current) return;
+      const activeProvider = aiProviderRef.current;
+      const currentDgKey = deepgramKeyRef.current;
+      const currentGeminiKey = apiKeyRef.current;
 
-      setIsProcessingChunk(true);
-      try {
-        const recentContext = segmentsRef.current
-          .slice(-3)
-          .map((s) => `${s.speakerLabel}: ${s.originalText}`);
-
-        const result = await translateChurchStageAudioChunk({
-          audioBlob,
-          mimeType,
-          targetLanguageCode: targetLangRef.current,
-          preferredSourceLanguageCode: speaker1LangRef.current,
-          recentContext,
-          apiKey: apiKeyRef.current,
-        });
-
-        setWallet((prev) => {
-          const addedSec = Math.round(durationMs / 1000);
-          const totalSec = prev.sessionSecondsUsed + addedSec;
-          return {
-            ...prev,
-            sessionSecondsUsed: totalSec,
-            sessionTokensUsed: prev.sessionTokensUsed + result.tokensEstimated,
-            minutesRemaining: Math.max(
-              0,
-              prev.totalMinutesPurchased - Math.floor(totalSec / 60)
-            ),
-          };
-        });
-
-        for (const utt of result.utterances) {
-          upsertSpeakerAndAppendSegment({
-            speakerId: utt.speakerId || 'speaker_1',
-            speakerLabel: utt.speakerLabel || 'Speaker 1',
-            roleHint: utt.roleHint || 'main-speaker',
-            sourceLanguageCode: utt.sourceLanguageCode || 'en',
-            sourceLanguageName: utt.sourceLanguageName || 'English',
-            detectedDialect: utt.detectedDialect,
-            originalText: utt.originalText,
-            translatedText: utt.translatedText,
-            backgroundNoiseNote: utt.backgroundNoiseNote,
-            latencyMs: result.latencyMs,
+      // 1. Process with Deepgram Nova-2 (Uses $200 free credit, <300ms diarization)
+      if (activeProvider === 'deepgram' && currentDgKey) {
+        setIsProcessingChunk(true);
+        try {
+          const result = await transcribeAndTranslateWithDeepgram({
+            audioBlob,
+            mimeType,
+            targetLanguageCode: targetLangRef.current,
+            deepgramApiKey: currentDgKey,
+            sourceLanguageCode: speaker1LangRef.current,
           });
+
+          setWallet((prev) => {
+            const addedSec = Math.round(durationMs / 1000);
+            const totalSec = prev.sessionSecondsUsed + addedSec;
+            return {
+              ...prev,
+              sessionSecondsUsed: totalSec,
+              minutesRemaining: Math.max(0, prev.totalMinutesPurchased - Math.floor(totalSec / 60)),
+            };
+          });
+
+          for (const utt of result.utterances) {
+            upsertSpeakerAndAppendSegment({
+              speakerId: utt.speakerId,
+              speakerLabel: utt.speakerLabel,
+              roleHint: utt.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
+              sourceLanguageCode: utt.sourceLanguageCode,
+              sourceLanguageName: utt.sourceLanguageName,
+              detectedDialect: utt.detectedDialect,
+              originalText: utt.originalText,
+              translatedText: utt.translatedText,
+              backgroundNoiseNote: utt.backgroundNoiseNote,
+              latencyMs: utt.latencyMs,
+            });
+          }
+          setErrorNotice(null);
+        } catch (err) {
+          setErrorNotice(err instanceof Error ? err.message : 'Deepgram translation failed');
+        } finally {
+          setIsProcessingChunk(false);
         }
-        setErrorNotice(null);
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : 'Translation request failed';
-        setErrorNotice(msg);
-      } finally {
-        setIsProcessingChunk(false);
+        return;
+      }
+
+      // 2. Process with Gemini 2.5 Flash if Gemini is selected and key present
+      if (activeProvider === 'gemini' && currentGeminiKey) {
+        setIsProcessingChunk(true);
+        try {
+          const recentContext = segmentsRef.current
+            .slice(-3)
+            .map((s) => `${s.speakerLabel}: ${s.originalText}`);
+
+          const result = await translateChurchStageAudioChunk({
+            audioBlob,
+            mimeType,
+            targetLanguageCode: targetLangRef.current,
+            preferredSourceLanguageCode: speaker1LangRef.current,
+            recentContext,
+            apiKey: currentGeminiKey,
+          });
+
+          setWallet((prev) => {
+            const addedSec = Math.round(durationMs / 1000);
+            const totalSec = prev.sessionSecondsUsed + addedSec;
+            return {
+              ...prev,
+              sessionSecondsUsed: totalSec,
+              sessionTokensUsed: prev.sessionTokensUsed + result.tokensEstimated,
+              minutesRemaining: Math.max(
+                0,
+                prev.totalMinutesPurchased - Math.floor(totalSec / 60)
+              ),
+            };
+          });
+
+          for (const utt of result.utterances) {
+            upsertSpeakerAndAppendSegment({
+              speakerId: utt.speakerId || 'speaker_1',
+              speakerLabel: utt.speakerLabel || 'Speaker 1',
+              roleHint: utt.roleHint || 'main-speaker',
+              sourceLanguageCode: utt.sourceLanguageCode || 'en',
+              sourceLanguageName: utt.sourceLanguageName || 'English',
+              detectedDialect: utt.detectedDialect,
+              originalText: utt.originalText,
+              translatedText: utt.translatedText,
+              backgroundNoiseNote: utt.backgroundNoiseNote,
+              latencyMs: result.latencyMs,
+            });
+          }
+          setErrorNotice(null);
+        } catch (err) {
+          const msg =
+            err instanceof Error ? err.message : 'Translation request failed';
+          setErrorNotice(msg);
+        } finally {
+          setIsProcessingChunk(false);
+        }
       }
     },
     [upsertSpeakerAndAppendSegment]
@@ -468,7 +551,7 @@ export function App() {
       return;
     }
 
-    const preset = STAGE_SIMULATION_PRESETS[0];
+    const preset = STAGE_SIMULATION_PRESETS[selectedPresetIndex % STAGE_SIMULATION_PRESETS.length];
     setIsSimulatingStage(true);
     setErrorNotice(null);
 
@@ -491,9 +574,9 @@ export function App() {
 
       upsertSpeakerAndAppendSegment({
         speakerId: step.speakerId,
-        speakerLabel: step.speakerId === 'speaker_1' ? 'Speaker 1' : 'Translator 2',
+        speakerLabel: step.speakerLabel,
         roleHint:
-          step.speakerId === 'speaker_1' ? 'main-speaker' : 'stage-interpreter',
+          step.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
         sourceLanguageCode: step.sourceLanguageCode,
         sourceLanguageName: step.sourceLanguageName,
         detectedDialect: step.detectedDialect,
@@ -604,6 +687,22 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <select
+              value={selectedPresetIndex}
+              onChange={(e) => {
+                setSelectedPresetIndex(Number(e.target.value));
+                if (isSimulatingStage) stopStageSimulation();
+              }}
+              className="bg-slate-900 border border-slate-800 text-[10px] font-semibold text-slate-300 rounded-lg px-2 py-1 max-w-[125px] truncate"
+              title="Select church simulation test case"
+            >
+              {STAGE_SIMULATION_PRESETS.map((p, i) => (
+                <option key={p.id} value={i}>
+                  {p.badge}
+                </option>
+              ))}
+            </select>
+
             <button
               type="button"
               onClick={toggleStageDemo}
@@ -616,12 +715,12 @@ export function App() {
               {isSimulatingStage ? (
                 <>
                   <Square className="w-2.5 h-2.5 fill-current" />
-                  Stop Demo
+                  Stop
                 </>
               ) : (
                 <>
                   <Play className="w-2.5 h-2.5 fill-current" />
-                  Stage Demo
+                  Demo
                 </>
               )}
             </button>
@@ -925,6 +1024,10 @@ export function App() {
           onClose={() => setIsSettingsOpen(false)}
           apiKey={apiKey}
           onSaveApiKey={handleSaveApiKey}
+          deepgramKey={deepgramKey}
+          onSaveDeepgramKey={handleSaveDeepgramKey}
+          activeAiProvider={aiProvider}
+          onSelectAiProvider={handleSelectAiProvider}
           speechConfig={speechConfig}
           onChangeSpeechConfig={(partial) => {
             setSpeechConfig((prev) => {

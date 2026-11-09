@@ -22,7 +22,6 @@ export class ChurchAudioEngine {
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
-  private hadVoiceInCurrentWindow = false;
   private chunkStartTime = 0;
 
   constructor(
@@ -222,7 +221,6 @@ export class ChurchAudioEngine {
       if (!this.isRunning || !this.destinationNode) return;
 
       const chunks: BlobPart[] = [];
-      this.hadVoiceInCurrentWindow = false;
       this.chunkStartTime = performance.now();
 
       try {
@@ -238,10 +236,11 @@ export class ChurchAudioEngine {
 
         recorder.onstop = () => {
           const durationMs = Math.round(performance.now() - this.chunkStartTime);
-          if (chunks.length > 0 && this.hadVoiceInCurrentWindow) {
+          // Send audio chunk if there is audio data (relaxed silence gate for distant speakers)
+          if (chunks.length > 0) {
             const actualMime = recorder.mimeType || mimeType || 'audio/webm';
             const blob = new Blob(chunks, { type: actualMime });
-            if (blob.size > 400) {
+            if (blob.size > 200) {
               this.onAudioChunk(blob, actualMime, durationMs);
             }
           }
@@ -256,7 +255,8 @@ export class ChurchAudioEngine {
 
     recordSegment();
 
-    const intervalMs = Math.max(2500, Math.min(8000, this.config.chunkDurationSec * 1000));
+    // 3.5 second audio slice intervals for faster real-time translation dispatch
+    const intervalMs = Math.max(2000, Math.min(8000, this.config.chunkDurationSec * 1000));
     this.chunkIntervalId = window.setInterval(() => {
       if (!this.isRunning) return;
       if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
@@ -316,10 +316,8 @@ export class ChurchAudioEngine {
       }
       const vocalBandAvg = vocalBandSum / 50;
 
-      const isVoiceDetected = rmsDb > this.config.silenceGateDb && vocalBandAvg > 26;
-      if (isVoiceDetected) {
-        this.hadVoiceInCurrentWindow = true;
-      }
+      // Relaxed detection for distant TV / distant pulpit speakers (rmsDb > -58 or vocalBandAvg > 12)
+      const isVoiceDetected = rmsDb > -58 || vocalBandAvg > 12;
 
       // Downsample 16 frequency bars for smooth UI visualizer
       const bars: number[] = [];

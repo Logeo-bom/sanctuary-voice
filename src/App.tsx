@@ -518,7 +518,8 @@ export function App() {
       await engine.start();
       audioEngineRef.current = engine;
 
-      if (!apiKeyRef.current && BrowserLiveSpeechFallback.isSupported()) {
+      // Only start browser speech fallback if neither Deepgram nor Gemini is connected
+      if (!deepgramKeyRef.current && !apiKeyRef.current && BrowserLiveSpeechFallback.isSupported()) {
         const fb = new BrowserLiveSpeechFallback(
           speaker1LangRef.current,
           targetLangRef.current,

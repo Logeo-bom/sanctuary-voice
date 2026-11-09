@@ -55,6 +55,12 @@ export class EarphoneSpeechEngine {
 
     if (forcePlay) {
       this.stopAll();
+    } else {
+      // In live stream/demo: drop previous pending speech so you only hear the latest translated sentence!
+      // This prevents sentences from queuing up and playing late with overlapping voices.
+      if (this.queue.length > 0) {
+        this.queue = [];
+      }
     }
 
     // Split long sentences into natural <175 char clauses for fast neural streaming
@@ -127,7 +133,7 @@ export class EarphoneSpeechEngine {
 
       let playedSuccessfully = false;
 
-      // 1. Try Gemini 2.5 Studio Neural Voice if selected and API key is present
+      // 1. If user explicitly chose Gemini Studio Voice, play Gemini Studio
       if (engineMode === 'gemini-studio' && item.apiKey && this.stopGeneration === gen) {
         playedSuccessfully = await this.playGeminiStudioVoice(
           item.text,
@@ -136,8 +142,8 @@ export class EarphoneSpeechEngine {
         );
       }
 
-      // 2. Try Cloud Neural TTS (Natural native neural voice for all 12 languages, zero API key required)
-      if (!playedSuccessfully && engineMode !== 'device' && this.stopGeneration === gen) {
+      // 2. Play Cloud Neural TTS (Default for all other modes)
+      if (!playedSuccessfully && engineMode === 'neural-cloud' && this.stopGeneration === gen) {
         playedSuccessfully = await this.playCloudNeuralAudio(
           item.text,
           item.targetLanguageCode,
@@ -146,7 +152,6 @@ export class EarphoneSpeechEngine {
       }
 
       // 3. Fallback to browser speech ONLY if user selected 'device' offline mode
-      // This strictly prevents the robotic Windows Microsoft David voice from playing during Cloud Neural mode!
       if (!playedSuccessfully && engineMode === 'device' && this.stopGeneration === gen) {
         await this.playBrowserSpeechSynthesis(
           item.text,

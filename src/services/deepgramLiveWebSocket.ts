@@ -40,13 +40,13 @@ export class DeepgramLiveWebSocket {
     return new Promise((resolve, reject) => {
       try {
         // If specific language is chosen (e.g. 'ko', 'pt', 'en'), pin directly to it.
-        // If Auto-Detect is chosen, use nova-3 with language=multi (supports Korean, Spanish, English, etc.)
+        // If Auto-Detect is chosen, use nova-3 with language=multi
         const isAuto = !this.sourceLang || this.sourceLang === 'auto';
         const modelName = isAuto ? 'nova-3' : 'nova-2';
         const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
-        // Deepgram live WebSocket URL
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=500&utterance_end_ms=1000${langParam}`;
+        // Deepgram live WebSocket URL: using endpointing=300ms for rapid speech completion
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}`;
 
         this.socket = new WebSocket(wsUrl, ['token', this.apiKey]);
 
@@ -61,8 +61,10 @@ export class DeepgramLiveWebSocket {
             const alt = channel?.alternatives?.[0];
             const transcript = alt?.transcript?.trim();
             const isFinal = Boolean(data?.is_final);
+            const speechFinal = Boolean(data?.speech_final);
 
-            if (transcript && transcript.length > 0 && isFinal) {
+            // Accept transcript if it's marked as speech_final OR is_final with content
+            if (transcript && transcript.length > 0 && (speechFinal || isFinal)) {
               const speakerNum = alt.words?.[0]?.speaker ?? 0;
               
               // Use translateAndDetect to auto-detect the language from the live spoken transcript
@@ -84,7 +86,7 @@ export class DeepgramLiveWebSocket {
                   detectedLang.toUpperCase(),
                 originalText: transcript,
                 translatedText,
-                isFinal,
+                isFinal: true,
                 latencyMs: 250,
               });
             }

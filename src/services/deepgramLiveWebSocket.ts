@@ -104,12 +104,16 @@ export class DeepgramLiveWebSocket {
               // Append finalized phrase slice to accumulator
               this.accumulatedWords.push(transcript);
 
-              // If speaker finished sentence (speechFinal) OR accumulated 10+ words, flush immediately!
-              const totalWordsCount = this.accumulatedWords.join(' ').split(/\s+/).length;
-              if (speechFinal || totalWordsCount >= 10) {
+              const currentAccumulated = this.accumulatedWords.join(' ').trim();
+              // Check if sentence naturally ended with punctuation (period, question mark, exclamation, or Korean verbal ending 다/요)
+              const hasTerminalPunctuation = /[.?!]$/.test(transcript) || /[다요][.?!]?$/.test(transcript);
+              const totalWordsCount = currentAccumulated.split(/\s+/).length;
+
+              // If speaker reached natural sentence boundary OR speech_final OR reached a substantial thought (15+ words), flush
+              if (speechFinal || (hasTerminalPunctuation && totalWordsCount >= 4) || totalWordsCount >= 18) {
                 await this.flushAccumulatedSentence();
               } else {
-                // Safety timer: flush after 1.8 seconds of no new speech so translation never stalls
+                // Safety timer: flush after 2.8 seconds of silence to prevent premature sentence cutting
                 this.resetSafetyFlushTimer();
               }
             }
@@ -138,7 +142,7 @@ export class DeepgramLiveWebSocket {
     }
     this.flushTimer = window.setTimeout(() => {
       void this.flushAccumulatedSentence();
-    }, 1800);
+    }, 2800);
   }
 
   private async flushAccumulatedSentence(): Promise<void> {

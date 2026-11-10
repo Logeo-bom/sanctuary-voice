@@ -39,15 +39,14 @@ export class DeepgramLiveWebSocket {
   public connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // In Deepgram live WebSocket streaming, language=multi enables real-time auto-detection & code-switching!
-        // If a specific language is chosen (e.g. 'ko', 'pt', 'en'), it pins directly to that language.
-        const langParam =
-          this.sourceLang && this.sourceLang !== 'auto'
-            ? `&language=${encodeURIComponent(this.sourceLang)}`
-            : '&language=multi';
+        // If specific language is chosen (e.g. 'ko', 'pt', 'en'), pin directly to it.
+        // If Auto-Detect is chosen, use nova-3 with language=multi (supports Korean, Spanish, English, etc.)
+        const isAuto = !this.sourceLang || this.sourceLang === 'auto';
+        const modelName = isAuto ? 'nova-3' : 'nova-2';
+        const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
-        // Deepgram live WebSocket URL: requires interim_results=true when pairing endpointing with utterance_end_ms
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=500&utterance_end_ms=1000${langParam}`;
+        // Deepgram live WebSocket URL
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=500&utterance_end_ms=1000${langParam}`;
 
         this.socket = new WebSocket(wsUrl, ['token', this.apiKey]);
 

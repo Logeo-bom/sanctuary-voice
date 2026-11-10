@@ -22,6 +22,11 @@ export class DeepgramLiveWebSocket {
   private onSegment: OnTranscriptCallback;
   private onError: OnErrorCallback;
 
+  // Utterance accumulation state to ensure word-for-word complete sentences
+  private accumulatedWords: string[] = [];
+  private currentSpeakerNum = 0;
+  private flushTimer: number | null = null;
+
   constructor(
     apiKey: string,
     sourceLang: string,
@@ -66,8 +71,9 @@ export class DeepgramLiveWebSocket {
         const modelName = isAuto ? 'nova-3' : 'nova-2';
         const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
-        // Deepgram live WebSocket URL
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}`;
+        // Deepgram live WebSocket URL with endpointing=300 for natural pause detection
+        // and vad_events=true / utterance_end_ms=1000 for bulletproof utterance completion
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&vad_events=true&endpointing=300&utterance_end_ms=1000${langParam}`;
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
@@ -78,38 +84,43 @@ export class DeepgramLiveWebSocket {
         this.socket.onmessage = async (event) => {
           try {
             const data = JSON.parse(event.data);
+
+            // Handle UtteranceEnd event (fallback trigger when speaker stops speaking)
+            if (data?.type === 'UtteranceEnd') {
+              await this.flushAccumulatedSentence();
+              return;
+            }
+
             const channel = data?.channel;
             const alt = channel?.alternatives?.[0];
             const transcript = alt?.transcript?.trim();
             const isFinal = Boolean(data?.is_final);
             const speechFinal = Boolean(data?.speech_final);
 
-            // Accept transcript if it's marked as speech_final OR is_final with content
-            if (transcript && transcript.length > 0 && (speechFinal || isFinal)) {
-              const speakerNum = alt.words?.[0]?.speaker ?? 0;
-              
-              // Use translateAndDetect to auto-detect the language from the live spoken transcript
-              const { translatedText, detectedLang } = await this.translateAndDetect(
-                transcript,
-                this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
-                this.targetLang
-              );
+            if (transcript && transcript.length > 0) {
+              if (isFinal) {
+                // Determine speaker
+                if (alt.words && alt.words.length > 0 && typeof alt.words[0].speaker === 'number') {
+                  const speaker = alt.words[0].speaker;
+                  // If speaker changed mid-stream, flush previous speaker's words first
+                  if (this.accumulatedWords.length > 0 && speaker !== this.currentSpeakerNum) {
+                    await this.flushAccumulatedSentence();
+                  }
+                  this.currentSpeakerNum = speaker;
+                }
 
-              this.onSegment({
-                speakerId: `speaker_${speakerNum + 1}`,
-                speakerLabel:
-                  speakerNum === 0
-                    ? 'Pastor (Pulpit PA)'
-                    : `Speaker ${speakerNum + 1} (Audience/Floor)`,
-                sourceLanguageCode: detectedLang,
-                sourceLanguageName:
-                  SUPPORTED_LANGUAGES.find((l) => l.code === detectedLang)?.name ||
-                  detectedLang.toUpperCase(),
-                originalText: transcript,
-                translatedText,
-                isFinal: true,
-                latencyMs: 250,
-              });
+                // Accumulate this finalized chunk to preserve EVERY spoken word without skipping
+                this.accumulatedWords.push(transcript);
+
+                // If speech_final is signaled by Deepgram (pause detected), translate the complete sentence immediately
+                if (speechFinal) {
+                  await this.flushAccumulatedSentence();
+                } else {
+                  // Safety timer: If continuous speech goes on without a long pause, flush every 4 seconds
+                  // so the listener gets word-for-word translation in real-time without excessive lag
+                  this.resetSafetyFlushTimer();
+                }
+              }
             }
           } catch {
             // Ignore parse errors on ping/metadata messages
@@ -122,12 +133,64 @@ export class DeepgramLiveWebSocket {
         };
 
         this.socket.onclose = () => {
-          // Closed
+          void this.flushAccumulatedSentence();
         };
       } catch (err) {
         reject(err);
       }
     });
+  }
+
+  private resetSafetyFlushTimer(): void {
+    if (this.flushTimer !== null) {
+      window.clearTimeout(this.flushTimer);
+    }
+    this.flushTimer = window.setTimeout(() => {
+      void this.flushAccumulatedSentence();
+    }, 3500);
+  }
+
+  private async flushAccumulatedSentence(): Promise<void> {
+    if (this.flushTimer !== null) {
+      window.clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    if (this.accumulatedWords.length === 0) return;
+
+    // Join all accumulated chunks into one complete, word-for-word sentence
+    const fullOriginalSentence = this.accumulatedWords.join(' ').trim();
+    const speakerNum = this.currentSpeakerNum;
+    this.accumulatedWords = [];
+
+    if (!fullOriginalSentence) return;
+
+    try {
+      // Direct, word-for-word translation of the complete sentence
+      const { translatedText, detectedLang } = await this.translateAndDetect(
+        fullOriginalSentence,
+        this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
+        this.targetLang
+      );
+
+      this.onSegment({
+        speakerId: `speaker_${speakerNum + 1}`,
+        speakerLabel:
+          speakerNum === 0
+            ? 'Pastor (Pulpit PA)'
+            : `Speaker ${speakerNum + 1} (Audience/Floor)`,
+        sourceLanguageCode: detectedLang,
+        sourceLanguageName:
+          SUPPORTED_LANGUAGES.find((l) => l.code === detectedLang)?.name ||
+          detectedLang.toUpperCase(),
+        originalText: fullOriginalSentence,
+        translatedText,
+        isFinal: true,
+        latencyMs: 250,
+      });
+    } catch {
+      // Fallback
+    }
   }
 
   public sendAudio(blobOrBuffer: Blob | ArrayBuffer): void {

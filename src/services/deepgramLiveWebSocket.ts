@@ -214,6 +214,32 @@ export class DeepgramLiveWebSocket {
     targetLang: string
   ): Promise<{ translatedText: string; detectedLang: string }> {
     try {
+      // 1. Try our own serverless proxy endpoint first to bypass browser CORS restrictions
+      const serverlessRes = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          sl: sourceLang,
+          tl: targetLang,
+        }),
+      });
+
+      if (serverlessRes.ok) {
+        const data = await serverlessRes.json();
+        if (data?.translatedText) {
+          return {
+            translatedText: data.translatedText,
+            detectedLang: data.detectedLang || (sourceLang !== 'auto' ? sourceLang : 'en'),
+          };
+        }
+      }
+    } catch {
+      // Fallback below
+    }
+
+    try {
+      // 2. Direct browser fallback
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
         sourceLang
       )}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;

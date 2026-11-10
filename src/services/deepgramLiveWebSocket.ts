@@ -36,7 +36,26 @@ export class DeepgramLiveWebSocket {
     this.onError = onError;
   }
 
-  public connect(): Promise<void> {
+  public async connect(): Promise<void> {
+    // 1. Fetch short-lived JWT token via our serverless grant endpoint to avoid browser subprotocol rejections
+    let accessToken = this.apiKey;
+    try {
+      const tokenRes = await fetch('/api/deepgram-token', {
+        method: 'POST',
+        headers: {
+          'x-deepgram-key': this.apiKey,
+        },
+      });
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        if (tokenData?.access_token) {
+          accessToken = tokenData.access_token;
+        }
+      }
+    } catch {
+      // Fallback to direct key if token endpoint is unreachable
+    }
+
     return new Promise((resolve, reject) => {
       try {
         // If specific language is chosen (e.g. 'ko', 'pt', 'en'), pin directly to it.
@@ -45,10 +64,10 @@ export class DeepgramLiveWebSocket {
         const modelName = isAuto ? 'nova-3' : 'nova-2';
         const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
-        // Deepgram live WebSocket URL: using endpointing=300ms for rapid speech completion
+        // Deepgram live WebSocket URL
         const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}`;
 
-        this.socket = new WebSocket(wsUrl, ['token', this.apiKey]);
+        this.socket = new WebSocket(wsUrl, ['token', accessToken]);
 
         this.socket.onopen = () => {
           resolve();

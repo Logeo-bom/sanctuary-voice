@@ -9,6 +9,10 @@
       "destination": "/api/deepgram-transcribe"
     },
     {
+      "source": "/api/deepgram-token",
+      "destination": "/api/deepgram-token"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

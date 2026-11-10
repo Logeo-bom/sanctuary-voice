@@ -220,42 +220,33 @@
     <!-- SLIDE 6: Prompts & Specifications Used -->
     <section class="slide flex-col max-w-4xl space-y-4 w-full">
       <div class="text-sky-400 font-bold text-xs uppercase tracking-wider">Prompt Engineering & Guardrails</div>
-      <h2 class="text-3xl font-extrabold text-white">The Actual Prompts & Specifications Applied</h2>
+      <h2 class="text-3xl font-extrabold text-white">The 2 Specifications Applied (AI Prompt vs App Build Prompt)</h2>
       
-      <div class="card-glass p-5 rounded-2xl space-y-3 border-sky-500/30">
-        <div class="text-sky-400 font-bold text-sm">1. AI System Prompt (English Specification for LLM & STT)</div>
-        <div class="text-xs text-gray-200 leading-relaxed space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-          <p><strong>Role:</strong> "You are SanctuaryVoice, an expert theological and multilingual church stage interpreter."</p>
-          <p><strong>Input:</strong> Raw streaming audio captured inside a reverberant church auditorium.</p>
-          <p><strong>Specifications & Rules:</strong></p>
-          <ul class="list-disc pl-5 space-y-1 text-gray-300">
-            <li><strong>Speaker Separation:</strong> Diarize and distinguish between Speaker 1 (Pulpit Pastor), Translator 2 (Stage Interpreter), and ambient congregation voices.</li>
-            <li><strong>Instrument Filtering:</strong> Duck or ignore background worship music (organ chords, keyboard synth pads).</li>
-            <li><strong>Spiritual Tongues / Shouting:</strong> If an audience member shouts or prays in tongues, tag as <em>[Congregation Vocalization]</em> and keep the pastor's sermon clear.</li>
-            <li><strong>Natural Delivery:</strong> Translate into dignified, reverent language suitable for personal earphone listening.</li>
+      <div class="card-glass p-4 rounded-2xl space-y-2 border-purple-500/30">
+        <div class="text-purple-400 font-bold text-xs uppercase tracking-wider">A. Coding Agent Meta-Prompt (How We Instructed the AI to Build the App)</div>
+        <div class="text-[11px] text-gray-200 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1">
+          <p class="text-sky-300 font-semibold">"Build a production-grade Church Voice Translator App called SanctuaryVoice using React 19, TypeScript, Vite 8, and Tailwind CSS v4."</p>
+          <p><strong>Strict Engineering Specifications:</strong></p>
+          <ul class="list-disc pl-4 space-y-0.5 text-gray-300">
+            <li><strong>Audio DSP Pipeline:</strong> Bypass OS noise cancellation, add 90Hz low-cut, 280Hz synth notch, 2.4kHz presence boost, and +22dB Pew Boost with 6:1 compressor.</li>
+            <li><strong>Live Streaming:</strong> Connect native WebSocket to Deepgram Nova-2 with diarization to separate the pastor from ambient shouting.</li>
+            <li><strong>Earphone Speech:</strong> Implement uninterrupted clause-queued Neural TTS so translated sentences never cut off.</li>
+            <li><strong>UI Shell:</strong> High-contrast dark auditorium theme with 1-tap voice locking, 2-window split screen, and pre-paid wallet passes.</li>
           </ul>
         </div>
       </div>
 
-      <div class="card-glass p-5 rounded-2xl space-y-3 border-emerald-500/30">
-        <div class="text-emerald-400 font-bold text-sm">2. Audio Hardware & Filter Pipeline (How the Mic Pre-Cleans Sound)</div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-300">
-          <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <span class="text-white font-semibold block">Step 1: Raw Mic Access</span>
-            Turn off phone noise cancellation so distant speakers aren't muted.
-          </div>
-          <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <span class="text-white font-semibold block">Step 2: 90Hz Low-Cut Filter</span>
-            Strips out HVAC air conditioning hum and stage floor vibrations.
-          </div>
-          <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <span class="text-white font-semibold block">Step 3: 280Hz Synth Notch Filter</span>
-            Cuts the warm muddy frequencies where church organ pads resonate.
-          </div>
-          <div class="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <span class="text-white font-semibold block">Step 4: +22dB Pre-Amp & Compressor</span>
-            Amplifies weak back-pew volume while compressing loud shouts so audio never clips.
-          </div>
+      <div class="card-glass p-4 rounded-2xl space-y-2 border-sky-500/30">
+        <div class="text-sky-400 font-bold text-xs uppercase tracking-wider">B. Runtime AI System Prompt (Inside the App Code for Gemini / Deepgram Inference)</div>
+        <div class="text-[11px] text-gray-200 leading-relaxed bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1">
+          <p><strong>Role:</strong> "You are SanctuaryVoice, an expert theological and multilingual church stage interpreter."</p>
+          <p><strong>Runtime Instructions:</strong></p>
+          <ul class="list-disc pl-4 space-y-0.5 text-gray-300">
+            <li>Diarize between Speaker 1 (Pulpit Pastor), Translator 2 (Stage Interpreter), and Ambient Congregation.</li>
+            <li>Duck background worship music (organ chords, keyboard synth pads).</li>
+            <li>Tag ambient shouting or praying in tongues as <em>[Congregation Vocalization]</em> and preserve pulpit translation.</li>
+            <li>Translate into natural, dignified spoken language for personal earphone listening.</li>
+          </ul>
         </div>
       </div>
     </section>

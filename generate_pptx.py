@@ -256,60 +256,60 @@ def create_deck():
 
     # --- SLIDE 6: The Prompts & Specifications Applied ---
     s6 = prs.slides.add_slide(blank_layout)
-    add_slide_header(s6, "Prompt Engineering & Guardrails", "The Exact Prompts & Specs Applied Post-Dave Farley Review")
+    add_slide_header(s6, "Prompt Engineering & Guardrails", "The 2 Specifications Applied (AI Prompt vs App Build Prompt)")
 
-    pbox1 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(2.0), Inches(11.33), Inches(2.4))
+    pbox1 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(2.0), Inches(11.33), Inches(2.3))
     pbox1.fill.solid()
     pbox1.fill.fore_color.rgb = COLOR_CARD
-    pbox1.line.color.rgb = COLOR_ACCENT
+    pbox1.line.color.rgb = RGBColor(192, 132, 252) # Purple
     tf1 = pbox1.text_frame
     tf1.word_wrap = True
     pt1 = tf1.paragraphs[0]
-    pt1.text = "1. AI System Prompt (Plain English Specification for LLM & Speech AI)"
-    pt1.font.size = Pt(15)
+    pt1.text = "A. Coding Agent Meta-Prompt (How We Instructed the AI to Build the App)"
+    pt1.font.size = Pt(14)
     pt1.font.bold = True
-    pt1.font.color.rgb = COLOR_ACCENT
+    pt1.font.color.rgb = RGBColor(192, 132, 252)
 
-    prompt_bullets = [
-        "Role: Expert theological and multilingual church stage interpreter.",
-        "Input: Raw streaming microphone audio captured inside a reverberant church auditorium.",
-        "Specification 1: Diarize between Speaker 1 (Pulpit Pastor), Translator 2 (Stage Interpreter), and ambient congregation.",
-        "Specification 2: Duck or ignore persistent worship background instruments (organ chords, keyboard synth pads).",
-        "Specification 3: If ambient shouting or praying in tongues occurs, tag as [Congregation Vocalization] and preserve pulpit translation.",
-        "Specification 4: Translate into dignified, reverent language suitable for an attendee wearing earphones."
+    build_bullets = [
+        "Directive: 'Build a production-grade Church Voice Translator App called SanctuaryVoice using React 19, TypeScript, Vite 8, and Tailwind CSS v4.'",
+        "Spec 1 (Acoustic DSP): Bypass OS noise cancellation, add 90Hz low-cut, 280Hz synth notch, 2.4kHz voice boost, and +22dB Pew Boost with 6:1 compressor.",
+        "Spec 2 (Streaming STT): Connect native WebSocket to Deepgram Nova-2 with live diarization to separate the pastor from ambient shouting.",
+        "Spec 3 (Earphone Speech): Implement uninterrupted clause-queued Neural TTS so translated sentences never cut off.",
+        "Spec 4 (UI Shell): High-contrast dark auditorium theme with 1-tap voice locking, 2-window split screen, and pre-paid wallet passes."
     ]
-    for b in prompt_bullets:
+    for b in build_bullets:
         p = tf1.add_paragraph()
         p.text = "• " + b
-        p.font.size = Pt(11)
+        p.font.size = Pt(10.5)
         p.font.color.rgb = COLOR_WHITE
-        p.space_before = Pt(3)
+        p.space_before = Pt(2.5)
 
-    pbox2 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(4.6), Inches(11.33), Inches(2.2))
+    pbox2 = s6.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(1.0), Inches(4.5), Inches(11.33), Inches(2.3))
     pbox2.fill.solid()
     pbox2.fill.fore_color.rgb = COLOR_CARD
-    pbox2.line.color.rgb = COLOR_EMERALD
+    pbox2.line.color.rgb = COLOR_ACCENT
     tf2 = pbox2.text_frame
     tf2.word_wrap = True
     pt2 = tf2.paragraphs[0]
-    pt2.text = "2. Audio Hardware & Filter Pipeline (How the Mic Pre-Cleans Sound)"
-    pt2.font.size = Pt(15)
+    pt2.text = "B. Runtime AI System Prompt (Inside the App Code for Gemini / Deepgram Inference)"
+    pt2.font.size = Pt(14)
     pt2.font.bold = True
-    pt2.font.color.rgb = COLOR_EMERALD
+    pt2.font.color.rgb = COLOR_ACCENT
 
-    dsp_bullets = [
-        "Step 1 (Raw Mic Capture): Turn off phone noise cancellation so distant loudspeakers are not muted.",
-        "Step 2 (90Hz Low-Cut Filter): Strips out HVAC air conditioning rumble and stage floor vibrations.",
-        "Step 3 (280Hz Synth Notch Filter): Attenuates the muddy resonant frequencies of church organ pads (-6.5dB).",
-        "Step 4 (2.4kHz Voice Boost): Sharpens vocal consonants over background instruments (+5.5dB).",
-        "Step 5 (+22dB Pew Boost & Compressor): Boosts weak back-pew volume while compressing loud shouts so audio never distorts."
+    runtime_bullets = [
+        "Role: Expert theological and multilingual church stage interpreter.",
+        "Input: Raw streaming microphone audio captured inside a reverberant church auditorium.",
+        "Rule 1 (Diarization): Diarize and distinguish between Speaker 1 (Pulpit Pastor), Translator 2 (Stage Interpreter), and ambient congregation.",
+        "Rule 2 (Ducking): Duck or ignore persistent worship background instruments (keyboard organ pads, synth chords).",
+        "Rule 3 (Tongues/Shouting): If ambient shouting or praying in tongues occurs, tag as [Congregation Vocalization] and preserve pulpit translation.",
+        "Rule 4 (Delivery): Translate into dignified, reverent language suitable for an attendee wearing earphones."
     ]
-    for b in dsp_bullets:
+    for b in runtime_bullets:
         p = tf2.add_paragraph()
         p.text = "• " + b
-        p.font.size = Pt(11)
+        p.font.size = Pt(10.5)
         p.font.color.rgb = COLOR_WHITE
-        p.space_before = Pt(3)
+        p.space_before = Pt(2.5)
 
     # --- SLIDE 7: Live Prototype Walkthrough ---
     s7 = prs.slides.add_slide(blank_layout)
@@ -444,7 +444,7 @@ def create_deck():
         p_desc.font.color.rgb = COLOR_MUTED
         p_desc.space_before = Pt(12)
 
-    output_filename = "presentation_briefing_clean.pptx"
+    output_filename = "presentation_briefing_v2.pptx"
     prs.save(output_filename)
     print(f"Presentation saved successfully: {output_filename}")
 

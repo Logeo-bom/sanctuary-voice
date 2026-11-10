@@ -25,7 +25,7 @@
       <span class="text-xs px-2.5 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800 font-semibold">Help a Million Churches</span>
     </div>
     <div class="flex items-center gap-4 text-xs text-gray-400">
-      <span>Slide <strong id="slideNum" class="text-white">1</strong> of <span id="totalSlides">8</span></span>
+      <span>Slide <strong id="slideNum" class="text-white">1</strong> of <span id="totalSlides">9</span></span>
       <div class="hidden sm:flex gap-1">
         <kbd class="px-2 py-1 rounded bg-gray-900 border border-gray-800">←</kbd>
         <kbd class="px-2 py-1 rounded bg-gray-900 border border-gray-800">→</kbd>
@@ -289,7 +289,54 @@
       </div>
     </section>
 
-    <!-- SLIDE 8: Team Hand-off & Roadmap -->
+    <!-- SLIDE 8: Complete Tech Stack Architecture -->
+    <section class="slide flex-col max-w-4xl space-y-4 w-full">
+      <div class="text-sky-400 font-bold text-xs uppercase tracking-wider">Engineering Architecture</div>
+      <h2 class="text-3xl font-extrabold text-white">Full Production Tech Stack (Research Outcome)</h2>
+      <p class="text-gray-300 text-xs leading-relaxed">
+        The complete client-to-cloud architecture selected after testing multiple hardware, AI, and latency trade-offs:
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-sky-400 space-y-1">
+          <div class="text-[11px] font-bold text-sky-400 uppercase tracking-wider">Frontend UI & Web</div>
+          <div class="text-sm font-extrabold text-white">React 19 + Vite 8 + Tailwind v4</div>
+          <p class="text-[11px] text-gray-400">Sub-millisecond state rendering, dark auditorium UI theme, and mobile viewport virtualization.</p>
+        </div>
+
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-indigo-400 space-y-1">
+          <div class="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">Acoustic DSP Engine</div>
+          <div class="text-sm font-extrabold text-white">Web Audio API + Biquad Filters</div>
+          <p class="text-[11px] text-gray-400">90Hz high-pass, 280Hz synth pad notch, 2.4kHz presence peak, +22dB Pew Boost pre-amp & 6:1 compressor.</p>
+        </div>
+
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-emerald-400 space-y-1">
+          <div class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Live Streaming STT</div>
+          <div class="text-sm font-extrabold text-white">Deepgram Nova-2 (WebSocket)</div>
+          <p class="text-[11px] text-gray-400">Under 300ms real-time diarization separating pastor from congregation shouting. $200 free credit (~770 free hours).</p>
+        </div>
+
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-amber-400 space-y-1">
+          <div class="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Context & Theological AI</div>
+          <div class="text-sm font-extrabold text-white">Google Gemini 2.5 Flash</div>
+          <p class="text-[11px] text-gray-400">Multimodal audio reasoning, theological idiom preservation, and Swiss French / Brazilian Portuguese vernacular handling.</p>
+        </div>
+
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-purple-400 space-y-1">
+          <div class="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Earphone Speech (TTS)</div>
+          <div class="text-sm font-extrabold text-white">Cloud Neural TTS / Edge Voice</div>
+          <p class="text-[11px] text-gray-400">Zero-cost natural human female voice with clause streaming queue to eliminate robotic desktop voice artifacts.</p>
+        </div>
+
+        <div class="card-glass p-3.5 rounded-xl border-l-2 border-pink-400 space-y-1">
+          <div class="text-[11px] font-bold text-pink-400 uppercase tracking-wider">Mobile & Cloud Deployment</div>
+          <div class="text-sm font-extrabold text-white">Capacitor 7 + Vercel Serverless</div>
+          <p class="text-[11px] text-gray-400">Android native permissions (RECORD_AUDIO, WAKE_LOCK) + Edge Serverless Proxy bypassing CORS.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 9: Team Hand-off & Roadmap -->
     <section class="slide flex-col max-w-4xl space-y-5 w-full">
       <div class="text-sky-400 font-bold text-xs uppercase tracking-wider">Next Steps & Team Roadmap</div>
       <h2 class="text-3xl font-extrabold text-white">Modular Hand-off: How the Team Takes Over</h2>
@@ -329,6 +376,7 @@
     </button>
     <div class="flex gap-1.5">
       <span class="dot w-2 h-2 rounded-full bg-sky-400"></span>
+      <span class="dot w-2 h-2 rounded-full bg-gray-700"></span>
       <span class="dot w-2 h-2 rounded-full bg-gray-700"></span>
       <span class="dot w-2 h-2 rounded-full bg-gray-700"></span>
       <span class="dot w-2 h-2 rounded-full bg-gray-700"></span>

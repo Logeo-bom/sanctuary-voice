@@ -367,9 +367,50 @@ def create_deck():
     pl.font.bold = True
     pl.font.color.rgb = COLOR_ACCENT
 
-    # --- SLIDE 8: Team Roadmap ---
+    # --- SLIDE 8: Full Production Tech Stack Architecture ---
     s8 = prs.slides.add_slide(blank_layout)
-    add_slide_header(s8, "Roadmap & Team Hand-off", "Modular Hand-off: How the Team Takes Over")
+    add_slide_header(s8, "Engineering Architecture", "Complete Production Tech Stack (Outcome of Research)")
+
+    tech_stack = [
+        ("Frontend & State", "React 19 + Vite 8 + Tailwind v4", "Sub-millisecond reactive rendering, dark sanctuary theme, and mobile viewport virtualization.", COLOR_ACCENT),
+        ("Acoustic DSP Engine", "Web Audio API + Biquad Filters", "90Hz low-cut, 280Hz synth pad notch, 2.4kHz presence peak, +22dB Pew Boost & 6:1 compressor.", RGBColor(129, 140, 248)),
+        ("Live Streaming STT", "Deepgram Nova-2 (WebSocket)", "<300ms real-time diarization separating pastor from congregation shouting. $200 free credit.", COLOR_EMERALD),
+        ("Context & Theological AI", "Google Gemini 2.5 Flash", "Multimodal audio reasoning, theological idiom preservation, and regional dialect translation.", COLOR_AMBER),
+        ("Earphone Speech (TTS)", "Cloud Neural Voice (Free)", "Zero-cost natural human female voice with clause streaming queue to eliminate robotic voices.", RGBColor(192, 132, 252)),
+        ("Mobile & Cloud Harness", "Capacitor 7 + Vercel Serverless", "Android native permissions (RECORD_AUDIO, WAKE_LOCK) + Edge Serverless Proxy bypassing CORS.", RGBColor(244, 114, 182))
+    ]
+
+    for idx, (layer, tech, detail, color) in enumerate(tech_stack):
+        col = idx % 3
+        row = idx // 3
+        x = Inches(1.0 + col * 3.9)
+        y = Inches(2.0 + row * 2.5)
+        c = s8.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, y, Inches(3.6), Inches(2.2))
+        c.fill.solid()
+        c.fill.fore_color.rgb = COLOR_CARD
+        c.line.color.rgb = color
+        tf = c.text_frame
+        tf.word_wrap = True
+        p_l = tf.paragraphs[0]
+        p_l.text = layer.upper()
+        p_l.font.size = Pt(11)
+        p_l.font.bold = True
+        p_l.font.color.rgb = color
+        p_t = tf.add_paragraph()
+        p_t.text = tech
+        p_t.font.size = Pt(15)
+        p_t.font.bold = True
+        p_t.font.color.rgb = COLOR_WHITE
+        p_t.space_before = Pt(4)
+        p_d = tf.add_paragraph()
+        p_d.text = detail
+        p_d.font.size = Pt(11)
+        p_d.font.color.rgb = COLOR_MUTED
+        p_d.space_before = Pt(6)
+
+    # --- SLIDE 9: Team Roadmap ---
+    s9 = prs.slides.add_slide(blank_layout)
+    add_slide_header(s9, "Roadmap & Team Hand-off", "Modular Hand-off: How the Team Takes Over")
 
     modules = [
         ("Module 1", "Audio DSP Pipeline", "WebAudio frequency filters, distance calibration, mobile microphone permissions.", COLOR_ACCENT),
@@ -380,7 +421,7 @@ def create_deck():
 
     for idx, (m_id, m_name, m_desc, m_color) in enumerate(modules):
         x = Inches(1.0 + idx * 2.9)
-        c = s8.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, Inches(2.0), Inches(2.7), Inches(4.6))
+        c = s9.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, Inches(2.0), Inches(2.7), Inches(4.6))
         c.fill.solid()
         c.fill.fore_color.rgb = COLOR_CARD
         c.line.color.rgb = m_color

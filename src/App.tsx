@@ -525,29 +525,34 @@ export function App() {
 
       // If Deepgram is selected and key present, connect direct low-latency WebSocket
       if (aiProviderRef.current === 'deepgram' && deepgramKeyRef.current) {
-        const wsClient = new DeepgramLiveWebSocket(
-          deepgramKeyRef.current,
-          speaker1LangRef.current,
-          targetLangRef.current,
-          (seg) => {
-            upsertSpeakerAndAppendSegment({
-              speakerId: seg.speakerId,
-              speakerLabel: seg.speakerLabel,
-              roleHint: seg.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
-              sourceLanguageCode: seg.sourceLanguageCode,
-              sourceLanguageName: seg.sourceLanguageName,
-              originalText: seg.originalText,
-              translatedText: seg.translatedText,
-              latencyMs: seg.latencyMs,
-            });
-          },
-          (err) => {
-            setErrorNotice(err);
-          }
-        );
+        try {
+          const wsClient = new DeepgramLiveWebSocket(
+            deepgramKeyRef.current,
+            speaker1LangRef.current,
+            targetLangRef.current,
+            (seg) => {
+              upsertSpeakerAndAppendSegment({
+                speakerId: seg.speakerId,
+                speakerLabel: seg.speakerLabel,
+                roleHint: seg.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
+                sourceLanguageCode: seg.sourceLanguageCode,
+                sourceLanguageName: seg.sourceLanguageName,
+                originalText: seg.originalText,
+                translatedText: seg.translatedText,
+                latencyMs: seg.latencyMs,
+              });
+            },
+            (err) => {
+              setErrorNotice(err);
+            }
+          );
 
-        await wsClient.connect();
-        deepgramWsRef.current = wsClient;
+          await wsClient.connect();
+          deepgramWsRef.current = wsClient;
+        } catch (wsErr) {
+          console.warn('Deepgram WebSocket connection failed, falling back to REST chunking:', wsErr);
+          deepgramWsRef.current = null;
+        }
       }
 
       const engine = new ChurchAudioEngine(

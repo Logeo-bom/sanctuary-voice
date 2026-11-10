@@ -39,10 +39,12 @@ export class DeepgramLiveWebSocket {
   public connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        // In Deepgram live WebSocket streaming, language=multi enables real-time auto-detection & code-switching!
+        // If a specific language is chosen (e.g. 'ko', 'pt', 'en'), it pins directly to that language.
         const langParam =
           this.sourceLang && this.sourceLang !== 'auto'
             ? `&language=${encodeURIComponent(this.sourceLang)}`
-            : '&detect_language=true';
+            : '&language=multi';
 
         // Deepgram live WebSocket URL: requires interim_results=true when pairing endpointing with utterance_end_ms
         const wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=500&utterance_end_ms=1000${langParam}`;
@@ -63,13 +65,11 @@ export class DeepgramLiveWebSocket {
 
             if (transcript && transcript.length > 0 && isFinal) {
               const speakerNum = alt.words?.[0]?.speaker ?? 0;
-              const detectedLang =
-                data?.channel?.detected_language ||
-                (this.sourceLang !== 'auto' ? this.sourceLang : 'ko');
-
-              const translated = await this.translateFast(
+              
+              // Use translateAndDetect to auto-detect the language from the live spoken transcript
+              const { translatedText, detectedLang } = await this.translateAndDetect(
                 transcript,
-                detectedLang,
+                this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
                 this.targetLang
               );
 
@@ -84,7 +84,7 @@ export class DeepgramLiveWebSocket {
                   SUPPORTED_LANGUAGES.find((l) => l.code === detectedLang)?.name ||
                   detectedLang.toUpperCase(),
                 originalText: transcript,
-                translatedText: translated,
+                translatedText,
                 isFinal,
                 latencyMs: 250,
               });
@@ -128,25 +128,28 @@ export class DeepgramLiveWebSocket {
     }
   }
 
-  private async translateFast(
+  private async translateAndDetect(
     text: string,
     sourceLang: string,
     targetLang: string
-  ): Promise<string> {
-    if (sourceLang.toLowerCase() === targetLang.toLowerCase()) return text;
+  ): Promise<{ translatedText: string; detectedLang: string }> {
     try {
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
         sourceLang
       )}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
       const res = await fetch(url);
-      if (!res.ok) return text;
-      const data = (await res.json()) as Array<Array<[string]>>;
-      if (Array.isArray(data?.[0])) {
-        return data[0].map((part) => part[0]).join('');
+      if (!res.ok) {
+        return { translatedText: text, detectedLang: sourceLang !== 'auto' ? sourceLang : 'en' };
       }
-      return text;
+      const data = await res.json();
+      let translatedText = text;
+      if (Array.isArray(data?.[0])) {
+        translatedText = data[0].map((part: [string]) => part[0]).join('');
+      }
+      const detectedLang = typeof data?.[2] === 'string' ? data[2] : (sourceLang !== 'auto' ? sourceLang : 'en');
+      return { translatedText, detectedLang };
     } catch {
-      return text;
+      return { translatedText: text, detectedLang: sourceLang !== 'auto' ? sourceLang : 'en' };
     }
   }
 }

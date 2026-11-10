@@ -40,6 +40,8 @@ const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
 const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
 const STORAGE_KEY_AI_PROVIDER = 'sanctuary_voice_ai_provider_v1';
 const STORAGE_KEY_SPEECH_CONFIG = 'sanctuary_voice_speech_config_v1';
+const STORAGE_KEY_SOURCE_LANG = 'sanctuary_voice_source_lang_v1';
+const STORAGE_KEY_TARGET_LANG = 'sanctuary_voice_target_lang_v1';
 
 const DEFAULT_STAGE_SPEAKERS: StageSpeaker[] = [
   {
@@ -69,8 +71,12 @@ const DEFAULT_STAGE_SPEAKERS: StageSpeaker[] = [
 ];
 
 export function App() {
-  const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>('en');
-  const [targetLangCode, setTargetLangCode] = useState<string>('tl');
+  const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEY_SOURCE_LANG) || 'auto';
+  });
+  const [targetLangCode, setTargetLangCode] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEY_TARGET_LANG) || 'no';
+  });
   const [speakers, setSpeakers] = useState<StageSpeaker[]>(DEFAULT_STAGE_SPEAKERS);
   const [segments, setSegments] = useState<TranslationSegment[]>([]);
 
@@ -194,6 +200,7 @@ export function App() {
   // Update Speaker 1 badge language when user changes Speaker 1 dropdown
   const handleChangeSpeaker1Language = (newLangCode: string) => {
     setSpeaker1SourceLang(newLangCode);
+    localStorage.setItem(STORAGE_KEY_SOURCE_LANG, newLangCode);
     const langMeta = SUPPORTED_LANGUAGES.find((l) => l.code === newLangCode);
     setSpeakers((prev) =>
       prev.map((s) =>
@@ -212,6 +219,7 @@ export function App() {
   // Re-translate existing demo segments immediately when user switches Target Language
   const handleChangeTargetLanguage = (newTargetCode: string) => {
     setTargetLangCode(newTargetCode);
+    localStorage.setItem(STORAGE_KEY_TARGET_LANG, newTargetCode);
     targetLangRef.current = newTargetCode;
     speechEngineRef.current?.stopAll();
 

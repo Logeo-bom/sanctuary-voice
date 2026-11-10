@@ -140,7 +140,7 @@ export class EarphoneSpeechEngine {
 
       let playedSuccessfully = false;
 
-      // 1. If user explicitly chose Gemini Studio Voice, play Gemini Studio
+      // 1. If user explicitly chose Gemini Studio Voice, attempt Gemini Studio
       if (engineMode === 'gemini-studio' && item.apiKey && this.stopGeneration === gen) {
         playedSuccessfully = await this.playGeminiStudioVoice(
           item.text,
@@ -149,8 +149,8 @@ export class EarphoneSpeechEngine {
         );
       }
 
-      // 2. Play Cloud Neural TTS (Default for all other modes)
-      if (!playedSuccessfully && engineMode === 'neural-cloud' && this.stopGeneration === gen) {
+      // 2. Play Cloud Neural TTS (Default, or fallback if Gemini Studio call fails or returns 404)
+      if (!playedSuccessfully && this.stopGeneration === gen) {
         playedSuccessfully = await this.playCloudNeuralAudio(
           item.text,
           item.targetLanguageCode,
@@ -158,8 +158,8 @@ export class EarphoneSpeechEngine {
         );
       }
 
-      // 3. Fallback to browser speech ONLY if user selected 'device' offline mode
-      if (!playedSuccessfully && engineMode === 'device' && this.stopGeneration === gen) {
+      // 3. Fallback to browser speech if cloud audio is blocked
+      if (!playedSuccessfully && this.stopGeneration === gen) {
         await this.playBrowserSpeechSynthesis(
           item.text,
           item.targetLanguageCode,

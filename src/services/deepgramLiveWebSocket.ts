@@ -71,9 +71,9 @@ export class DeepgramLiveWebSocket {
         const modelName = isAuto ? 'nova-3' : 'nova-2';
         const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
-        // Deepgram live WebSocket URL with endpointing=300 for natural pause detection
-        // and vad_events=true / utterance_end_ms=1000 for bulletproof utterance completion
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&vad_events=true&endpointing=300&utterance_end_ms=1000${langParam}`;
+        // Deepgram live WebSocket URL
+        // Endpointing=300ms triggers speech_final on natural speaker pauses.
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}`;
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
@@ -85,41 +85,32 @@ export class DeepgramLiveWebSocket {
           try {
             const data = JSON.parse(event.data);
 
-            // Handle UtteranceEnd event (fallback trigger when speaker stops speaking)
-            if (data?.type === 'UtteranceEnd') {
-              await this.flushAccumulatedSentence();
-              return;
-            }
-
             const channel = data?.channel;
             const alt = channel?.alternatives?.[0];
             const transcript = alt?.transcript?.trim();
             const isFinal = Boolean(data?.is_final);
             const speechFinal = Boolean(data?.speech_final);
 
-            if (transcript && transcript.length > 0) {
-              if (isFinal) {
-                // Determine speaker
-                if (alt.words && alt.words.length > 0 && typeof alt.words[0].speaker === 'number') {
-                  const speaker = alt.words[0].speaker;
-                  // If speaker changed mid-stream, flush previous speaker's words first
-                  if (this.accumulatedWords.length > 0 && speaker !== this.currentSpeakerNum) {
-                    await this.flushAccumulatedSentence();
-                  }
-                  this.currentSpeakerNum = speaker;
-                }
-
-                // Accumulate this finalized chunk to preserve EVERY spoken word without skipping
-                this.accumulatedWords.push(transcript);
-
-                // If speech_final is signaled by Deepgram (pause detected), translate the complete sentence immediately
-                if (speechFinal) {
+            if (transcript && transcript.length > 0 && isFinal) {
+              // Determine speaker
+              if (alt.words && alt.words.length > 0 && typeof alt.words[0].speaker === 'number') {
+                const speaker = alt.words[0].speaker;
+                if (this.accumulatedWords.length > 0 && speaker !== this.currentSpeakerNum) {
                   await this.flushAccumulatedSentence();
-                } else {
-                  // Safety timer: If continuous speech goes on without a long pause, flush every 4 seconds
-                  // so the listener gets word-for-word translation in real-time without excessive lag
-                  this.resetSafetyFlushTimer();
                 }
+                this.currentSpeakerNum = speaker;
+              }
+
+              // Append finalized phrase slice to accumulator
+              this.accumulatedWords.push(transcript);
+
+              // If speaker finished sentence (speechFinal) OR accumulated 10+ words, flush immediately!
+              const totalWordsCount = this.accumulatedWords.join(' ').split(/\s+/).length;
+              if (speechFinal || totalWordsCount >= 10) {
+                await this.flushAccumulatedSentence();
+              } else {
+                // Safety timer: flush after 1.8 seconds of no new speech so translation never stalls
+                this.resetSafetyFlushTimer();
               }
             }
           } catch {
@@ -147,7 +138,7 @@ export class DeepgramLiveWebSocket {
     }
     this.flushTimer = window.setTimeout(() => {
       void this.flushAccumulatedSentence();
-    }, 3500);
+    }, 1800);
   }
 
   private async flushAccumulatedSentence(): Promise<void> {

@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   X,
-  KeyRound,
   Wallet,
   Headphones,
   CheckCircle2,
@@ -34,10 +33,6 @@ interface SettingsAndWalletModalProps {
 export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   isOpen,
   onClose,
-  apiKey,
-  onSaveApiKey,
-  deepgramKey,
-  onSaveDeepgramKey,
   activeAiProvider,
   onSelectAiProvider,
   speechConfig,
@@ -45,26 +40,7 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   wallet,
   onTopUpMinutes,
 }) => {
-  const [draftGeminiKey, setDraftGeminiKey] = useState(apiKey);
-  const [draftDeepgramKey, setDraftDeepgramKey] = useState(deepgramKey);
-  const [savedGeminiNotice, setSavedGeminiNotice] = useState(false);
-  const [savedDgNotice, setSavedDgNotice] = useState(false);
-
   if (!isOpen) return null;
-
-  const handleSaveGemini = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSaveApiKey(draftGeminiKey.trim());
-    setSavedGeminiNotice(true);
-    window.setTimeout(() => setSavedGeminiNotice(false), 2000);
-  };
-
-  const handleSaveDeepgram = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSaveDeepgramKey(draftDeepgramKey.trim());
-    setSavedDgNotice(true);
-    window.setTimeout(() => setSavedDgNotice(false), 2000);
-  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
@@ -138,84 +114,31 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </div>
         </div>
 
-        {/* 2. Deepgram API Key (with $200 free credit) */}
-        <form onSubmit={handleSaveDeepgram} className="space-y-2 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+        {/* 2. Cloud Server Connection Status (Clean, Production-Ready) */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
-            <label
-              htmlFor="deepgram-api-key-input"
-              className="text-xs font-semibold text-sky-300 flex items-center gap-1.5"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-sky-400" />
-              Deepgram API Key ($200 Free Developer Credit)
-            </label>
-            {deepgramKey ? (
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Key Connected
-              </span>
-            ) : (
-              <span className="text-[10px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded">
-                Paste your key here
-              </span>
-            )}
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-sky-400" />
+              Cloud AI Infrastructure
+            </span>
+            <span className="text-[11px] text-emerald-400 flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Server Connected
+            </span>
           </div>
-          <div className="flex gap-2">
-            <input
-              id="deepgram-api-key-input"
-              type="password"
-              value={draftDeepgramKey}
-              onChange={(e) => setDraftDeepgramKey(e.target.value)}
-              placeholder="Paste Deepgram key here (stays safe in your browser only)..."
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500"
-            />
-            <button
-              type="submit"
-              className="px-4 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition cursor-pointer"
-            >
-              {savedDgNotice ? 'Saved!' : 'Save Key'}
-            </button>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-400">
+            <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="font-semibold text-slate-300 mb-0.5">Deepgram &amp; DeepL</div>
+              <div>Managed Server-Side</div>
+            </div>
+            <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+              <div className="font-semibold text-slate-300 mb-0.5">Gemini 2.5 Flash</div>
+              <div>Managed Server-Side</div>
+            </div>
           </div>
           <p className="text-[11px] text-slate-400">
-            Enables instant speaker diarization (separates Pastor from shouting congregation members in Portuguese/English).
+            Zero setup required for congregation members. Live audio streams securely through your dedicated church backend.
           </p>
-        </form>
-
-        {/* 3. Gemini API Key Configuration (Optional) */}
-        <form onSubmit={handleSaveGemini} className="space-y-2 bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-          <div className="flex items-center justify-between">
-            <label
-              htmlFor="gemini-api-key-input"
-              className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
-              Gemini 2.5 Flash API Key (Optional)
-            </label>
-            {apiKey ? (
-              <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Connected
-              </span>
-            ) : (
-              <span className="text-[10px] text-slate-400">
-                Optional
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <input
-              id="gemini-api-key-input"
-              type="password"
-              value={draftGeminiKey}
-              onChange={(e) => setDraftGeminiKey(e.target.value)}
-              placeholder="AIzaSy..."
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-            />
-            <button
-              type="submit"
-              className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition cursor-pointer"
-            >
-              {savedGeminiNotice ? 'Saved!' : 'Save Key'}
-            </button>
-          </div>
-        </form>
+        </div>
 
         {/* 4. Priority 2: Earphone Speech-to-Speech (TTS) Configuration */}
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">

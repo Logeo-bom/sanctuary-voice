@@ -20,12 +20,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const rawApiKey = (req.headers['x-deepgram-key'] as string) || '';
+    const rawApiKey =
+      process.env.DEEPGRAM_API_KEY ||
+      (req.headers['x-deepgram-key'] as string) ||
+      '';
     const authHeader = req.headers['authorization'] || '';
     const apiKey = rawApiKey || authHeader.replace(/^Token\s+/i, '').replace(/^Bearer\s+/i, '').trim();
 
     if (!apiKey) {
-      return res.status(400).json({ error: 'Missing Deepgram API key in x-deepgram-key header' });
+      return res.status(400).json({ error: 'Missing Deepgram API key in environment or header' });
     }
 
     const sourceLang = (req.headers['x-source-lang'] as string) || 'auto';

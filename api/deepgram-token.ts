@@ -10,12 +10,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const rawApiKey = (req.headers['x-deepgram-key'] as string) || '';
+    // 1. Read from server-side environment variable first (Zero user configuration),
+    // then fallback to client-provided key
+    const rawApiKey =
+      process.env.DEEPGRAM_API_KEY ||
+      (req.headers['x-deepgram-key'] as string) ||
+      '';
     const authHeader = req.headers['authorization'] || '';
     const apiKey = rawApiKey || authHeader.replace(/^Token\s+/i, '').replace(/^Bearer\s+/i, '').trim();
 
     if (!apiKey) {
-      return res.status(400).json({ error: 'Missing Deepgram API key in x-deepgram-key header' });
+      return res.status(400).json({ error: 'Missing Deepgram API key. Configure DEEPGRAM_API_KEY in Vercel or pass x-deepgram-key.' });
     }
 
     // Call Deepgram's official grant endpoint to mint a short-lived browser JWT

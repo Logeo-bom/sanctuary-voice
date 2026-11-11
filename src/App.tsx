@@ -523,11 +523,11 @@ export function App() {
     try {
       setErrorNotice(null);
 
-      // If Deepgram is selected and key present, connect direct low-latency WebSocket
-      if (aiProviderRef.current === 'deepgram' && deepgramKeyRef.current) {
+      // If Deepgram is selected, connect direct low-latency WebSocket (using serverless token or stored key)
+      if (aiProviderRef.current === 'deepgram') {
         try {
           const wsClient = new DeepgramLiveWebSocket(
-            deepgramKeyRef.current,
+            deepgramKeyRef.current || '',
             speaker1LangRef.current,
             targetLangRef.current,
             (seg) => {

@@ -46,11 +46,13 @@ export class DeepgramLiveWebSocket {
     let accessToken = this.apiKey;
     let authProtocol = 'token'; // 'token' for master API key, 'bearer' for JWT access_token
     try {
+      const headers: Record<string, string> = {};
+      if (this.apiKey) {
+        headers['x-deepgram-key'] = this.apiKey;
+      }
       const tokenRes = await fetch('/api/deepgram-token', {
         method: 'POST',
-        headers: {
-          'x-deepgram-key': this.apiKey,
-        },
+        headers,
       });
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();

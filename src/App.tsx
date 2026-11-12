@@ -4,7 +4,6 @@ import {
   Headphones,
   VolumeX,
   Settings,
-  Play,
   Square,
   Volume2,
   Signal,
@@ -26,7 +25,6 @@ import type {
 } from './types/translator';
 import {
   SPEAKER_PALETTE,
-  STAGE_SIMULATION_PRESETS,
   SUPPORTED_LANGUAGES,
 } from './constants/languages';
 import { ChurchAudioEngine } from './services/churchAudioEngine';
@@ -151,11 +149,8 @@ export function App() {
     return (localStorage.getItem(STORAGE_KEY_AI_PROVIDER) as 'deepgram' | 'gemini') || 'deepgram';
   });
 
-  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(0);
-
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
-  const [isSimulatingStage, setIsSimulatingStage] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
@@ -163,7 +158,6 @@ export function App() {
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
   const fallbackEngineRef = useRef<BrowserLiveSpeechFallback | null>(null);
   const deepgramWsRef = useRef<DeepgramLiveWebSocket | null>(null);
-  const simulationTimerRef = useRef<number | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
   const speakersRef = useRef<StageSpeaker[]>(speakers);
@@ -174,7 +168,6 @@ export function App() {
   const deepgramKeyRef = useRef<string>(deepgramKey);
   const aiProviderRef = useRef<'deepgram' | 'gemini'>(aiProvider);
   const segmentsRef = useRef<TranslationSegment[]>(segments);
-  const isSimulatingStageRef = useRef<boolean>(isSimulatingStage);
 
   useEffect(() => {
     speakersRef.current = speakers;
@@ -209,18 +202,11 @@ export function App() {
   }, [segments]);
 
   useEffect(() => {
-    isSimulatingStageRef.current = isSimulatingStage;
-  }, [isSimulatingStage]);
-
-  useEffect(() => {
     speechEngineRef.current = new EarphoneSpeechEngine(speechConfig);
     return () => {
       speechEngineRef.current?.stopAll();
       audioEngineRef.current?.stop();
       fallbackEngineRef.current?.stop();
-      if (simulationTimerRef.current) {
-        window.clearInterval(simulationTimerRef.current);
-      }
     };
   }, [speechConfig]);
 
@@ -251,7 +237,6 @@ export function App() {
     );
   };
 
-  // Re-translate existing demo segments immediately when user switches Target Language
   const handleChangeTargetLanguage = (newTargetCode: string) => {
     setTargetLangCode(newTargetCode);
     localStorage.setItem(STORAGE_KEY_TARGET_LANG, newTargetCode);
@@ -271,37 +256,12 @@ export function App() {
       )
     );
 
-    const preset = STAGE_SIMULATION_PRESETS[0];
-    setSegments((prev) => {
-      const updated = prev.map((seg) => {
-        const matchingPresetStep = preset.steps.find(
-          (st) => st.originalText === seg.originalText
-        );
-        if (matchingPresetStep) {
-          return {
-            ...seg,
-            targetLanguageCode: newTargetCode,
-            translatedText:
-              matchingPresetStep.translations[newTargetCode] ||
-              matchingPresetStep.translations.en ||
-              seg.translatedText,
-          };
-        }
-        return { ...seg, targetLanguageCode: newTargetCode };
-      });
-
-      // Speak the most recent visible segment in the newly chosen language
-      const latest = updated[updated.length - 1];
-      if (latest && speechEngineRef.current) {
-        speechEngineRef.current.speakTranslation(
-          latest.translatedText,
-          newTargetCode,
-          false,
-          apiKeyRef.current
-        );
-      }
-      return updated;
-    });
+    setSegments((prev) =>
+      prev.map((seg) => ({
+        ...seg,
+        targetLanguageCode: newTargetCode,
+      }))
+    );
   };
 
   const handleSaveApiKey = (newKey: string) => {
@@ -454,14 +414,7 @@ export function App() {
 
       setSegments((prev) => [...prev, newSegment]);
 
-      // In stage simulation mode, only translate and speak Speaker 1.
-      // Translator 2 (the stage interpreter) is never spoken into earphones.
-      const isSimulation = isSimulatingStageRef.current;
-      const isTargetSpeaker = !isSimulation || params.speakerId === 'speaker_1';
-      const shouldSpeakInEarphones =
-        !isMutedByLock &&
-        isTargetSpeaker &&
-        speechEngineRef.current;
+      const shouldSpeakInEarphones = !isMutedByLock && speechEngineRef.current;
 
       if (shouldSpeakInEarphones && speechEngineRef.current) {
         speechEngineRef.current.speakTranslation(
@@ -653,11 +606,6 @@ export function App() {
   );
 
   const toggleLiveMicrophone = async () => {
-    if (isSimulatingStage) {
-      stopStageSimulation();
-      return;
-    }
-
     if (isListening) {
       audioEngineRef.current?.stop();
       audioEngineRef.current = null;
@@ -735,86 +683,6 @@ export function App() {
           : 'Microphone permission denied.';
       setErrorNotice(msg);
     }
-  };
-
-  const toggleStageDemo = () => {
-    if (isListening) {
-      audioEngineRef.current?.stop();
-      fallbackEngineRef.current?.stop();
-      setIsListening(false);
-    }
-    if (isSimulatingStage) {
-      stopStageSimulation();
-      return;
-    }
-
-    const preset = STAGE_SIMULATION_PRESETS[selectedPresetIndex % STAGE_SIMULATION_PRESETS.length];
-    setIsSimulatingStage(true);
-    setErrorNotice(null);
-
-    let stepIndex = 0;
-
-    const playNextStep = () => {
-      if (!simulationTimerRef.current) return;
-
-      const step = preset.steps[stepIndex % preset.steps.length];
-      const translated =
-        step.translations[targetLangRef.current] ||
-        step.translations.en ||
-        step.originalText;
-
-      setMeter({
-        rmsDb: -16 + Math.round(Math.random() * 5),
-        peakDb: -6,
-        normalizedLevel: 0.75,
-        isClipping: false,
-        isVoiceDetected: true,
-        frequencyBins: new Array(16).fill(0.5),
-      });
-
-      upsertSpeakerAndAppendSegment({
-        speakerId: step.speakerId,
-        speakerLabel: step.speakerLabel,
-        roleHint:
-          step.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
-        sourceLanguageCode: step.sourceLanguageCode,
-        sourceLanguageName: step.sourceLanguageName,
-        detectedDialect: step.detectedDialect,
-        originalText: step.originalText,
-        translatedText: translated,
-        backgroundNoiseNote: step.backgroundNoiseNote,
-        latencyMs: 350,
-      });
-
-      stepIndex++;
-
-      // Intelligent Church Timing:
-      // If Speaker 1 speaks into earphones, wait for the voice to finish speaking + natural breath pause (1.2s),
-      // then advance to the next phrase. This guarantees the voice is NEVER cut off or lagging behind the text!
-      if (step.speakerId === 'speaker_1') {
-        const estimatedDurationMs = Math.max(3800, (translated.length / 15) * 1000);
-        simulationTimerRef.current = window.setTimeout(playNextStep, estimatedDurationMs + 1200);
-      } else {
-        // Filtered shouting / background translation: display card for 2.8 seconds, then next speaker
-        simulationTimerRef.current = window.setTimeout(playNextStep, 2800);
-      }
-    };
-
-    simulationTimerRef.current = window.setTimeout(playNextStep, 200);
-  };
-
-  const stopStageSimulation = () => {
-    if (simulationTimerRef.current !== null) {
-      window.clearTimeout(simulationTimerRef.current);
-      simulationTimerRef.current = null;
-    }
-    speechEngineRef.current?.stopAll();
-    setIsSimulatingStage(false);
-    setMeter((prev) => ({
-      ...prev,
-      rmsDb: -70,
-      isVoiceDetected: false,
-    }));
   };
 
   const visibleSegments =
@@ -897,44 +765,6 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <select
-              value={selectedPresetIndex}
-              onChange={(e) => {
-                setSelectedPresetIndex(Number(e.target.value));
-                if (isSimulatingStage) stopStageSimulation();
-              }}
-              className="bg-slate-900 border border-slate-800 text-[10px] font-semibold text-slate-300 rounded-lg px-2 py-1 max-w-[125px] truncate"
-              title="Select church simulation test case"
-            >
-              {STAGE_SIMULATION_PRESETS.map((p, i) => (
-                <option key={p.id} value={i}>
-                  {p.badge}
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="button"
-              onClick={toggleStageDemo}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                isSimulatingStage
-                  ? 'bg-amber-400 text-slate-950'
-                  : 'bg-slate-900 text-amber-300 border border-amber-500/30'
-              }`}
-            >
-              {isSimulatingStage ? (
-                <>
-                  <Square className="w-2.5 h-2.5 fill-current" />
-                  Stop
-                </>
-              ) : (
-                <>
-                  <Play className="w-2.5 h-2.5 fill-current" />
-                  Demo
-                </>
-              )}
-            </button>
-
             {segments.length > 0 && (
               <button
                 type="button"
@@ -1105,9 +935,7 @@ export function App() {
                     : 'Ready in Church'}
                 </h2>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Put your earphones on and tap the microphone below, or tap{' '}
-                  <strong className="text-amber-300">Stage Demo</strong> at the
-                  top to hear live Tagalog / Norwegian / multi-language translation.
+                  Put your earphones on and tap the microphone below or switch to TAB / Online Sermon to stream live church audio.
                 </p>
               </div>
             </div>
@@ -1242,19 +1070,19 @@ export function App() {
                 type="button"
                 onClick={toggleLiveMicrophone}
                 className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition transform active:scale-95 cursor-pointer relative ${
-                  isListening || isSimulatingStage
+                  isListening
                     ? 'bg-rose-500 text-slate-950 shadow-rose-500/30'
                     : audioConfig.audioSource === 'tab'
                     ? 'bg-emerald-400 text-slate-950 shadow-emerald-500/30'
                     : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
                 }`}
               >
-                {(isListening || isSimulatingStage) && meter.isVoiceDetected && (
+                {isListening && meter.isVoiceDetected && (
                   <span className="absolute inset-0 rounded-full border-2 border-rose-400 animate-ping opacity-40" />
                 )}
                 {isProcessingChunk ? (
                   <Sparkles className="w-7 h-7 animate-spin" />
-                ) : isListening || isSimulatingStage ? (
+                ) : isListening ? (
                   <Square className="w-6 h-6 fill-current" />
                 ) : audioConfig.audioSource === 'tab' ? (
                   <Tv className="w-7 h-7" />
@@ -1263,9 +1091,7 @@ export function App() {
                 )}
               </button>
               <span className="text-[11px] font-semibold text-slate-200 mt-1">
-                {isSimulatingStage
-                  ? 'Tap to Stop Demo'
-                  : isListening
+                {isListening
                   ? audioConfig.audioSource === 'tab'
                     ? 'Stop Tab Stream'
                     : 'Tap to Stop Mic'

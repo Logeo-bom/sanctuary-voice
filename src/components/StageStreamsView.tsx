@@ -399,7 +399,7 @@ export const StageStreamsView: React.FC<StageStreamsViewProps> = ({
                 Ready for Live Sanctuary Speech
               </div>
               <p className="text-xs text-slate-400 max-w-md">
-                Tap <strong>Start Live Translation</strong> above to capture the church stage with your microphone, or tap <strong>Run Multi-Language Stage Demo</strong> to test dual-language preacher + interpreter separation immediately.
+                Tap <strong>Start Live Translation</strong> above to capture the church stage with your microphone or digital stream.
               </p>
             </div>
           ) : (

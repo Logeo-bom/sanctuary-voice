@@ -45,9 +45,9 @@ export class DeepgramLiveWebSocket {
   }
 
   public async connect(): Promise<void> {
-    // 1. Fetch short-lived JWT token via our serverless grant endpoint to avoid browser subprotocol rejections
+    // 1. Fetch short-lived token via our serverless grant endpoint (uses process.env.DEEPGRAM_API_KEY)
     let accessToken = this.apiKey;
-    let authProtocol = 'token'; // 'token' for master API key, 'bearer' for JWT access_token
+    let authProtocol = 'token'; // 'token' for master/temporary API key, 'bearer' for JWT access_token
     try {
       const headers: Record<string, string> = {};
       if (this.apiKey) {
@@ -59,13 +59,20 @@ export class DeepgramLiveWebSocket {
       });
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
-        if (tokenData?.access_token) {
+        if (tokenData?.key) {
+          accessToken = tokenData.key;
+          authProtocol = 'token';
+        } else if (tokenData?.access_token) {
           accessToken = tokenData.access_token;
           authProtocol = 'bearer';
         }
       }
     } catch {
       // Fallback to direct key if token endpoint is unreachable
+    }
+
+    if (!accessToken) {
+      throw new Error('No Deepgram API key or temporary token available');
     }
 
     return new Promise((resolve, reject) => {

@@ -47,6 +47,7 @@ export interface AudioProcessingConfig {
   chunkDurationSec: number;
   silenceGateDb: number;
   selectedDeviceId: string;
+  audioSource?: 'mic' | 'tab';
 }
 
 export type VoiceEngineMode = 'neural-cloud' | 'gemini-studio' | 'device';

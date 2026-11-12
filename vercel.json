@@ -1,16 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/api/neural-tts",
-      "destination": "/api/neural-tts"
-    },
-    {
-      "source": "/api/deepgram-transcribe",
-      "destination": "/api/deepgram-transcribe"
-    },
-    {
-      "source": "/api/deepgram-token",
-      "destination": "/api/deepgram-token"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
       "source": "/(.*)",

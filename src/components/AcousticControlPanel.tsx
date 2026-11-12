@@ -7,6 +7,7 @@ import {
   Mic,
   Volume2,
   CheckCircle2,
+  Tv,
 } from 'lucide-react';
 import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/translator';
 
@@ -228,6 +229,61 @@ export const AcousticControlPanel: React.FC<AcousticControlPanelProps> = ({
             </div>
           </div>
         </button>
+      </div>
+
+      {/* Audio Capture Mode: Physical Microphone vs Direct Browser Tab Stream */}
+      <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+        <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+          <Tv className="w-3.5 h-3.5 text-sky-400" />
+          Audio Ingestion Source
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onChangeConfig({ audioSource: 'mic' })}
+            className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+              (config.audioSource || 'mic') === 'mic'
+                ? 'bg-sky-500/15 border-sky-500/50 text-white'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="text-xs font-semibold flex items-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 text-sky-400" />
+                Physical Mic
+              </div>
+              <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                In-person church pews &amp; stage
+              </div>
+            </div>
+            {(config.audioSource || 'mic') === 'mic' && (
+              <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChangeConfig({ audioSource: 'tab' })}
+            className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+              config.audioSource === 'tab'
+                ? 'bg-emerald-500/15 border-emerald-500/50 text-white'
+                : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+            }`}
+          >
+            <div>
+              <div className="text-xs font-semibold flex items-center gap-1.5">
+                <Tv className="w-3.5 h-3.5 text-emerald-400" />
+                Browser Tab / YouTube
+              </div>
+              <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                Pure digital stream (100% clarity)
+              </div>
+            </div>
+            {config.audioSource === 'tab' && (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Microphone Hardware Source Picker & Chunk Latency */}

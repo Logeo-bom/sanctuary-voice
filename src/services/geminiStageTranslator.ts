@@ -42,13 +42,56 @@ export async function translateChurchStageAudioChunk(params: {
   targetLanguageCode: string;
   preferredSourceLanguageCode: string; // 'auto' or specific ISO code
   recentContext: string[];
-  apiKey: string;
+  apiKey?: string;
   modelName?: string;
 }): Promise<GeminiTranslationResult> {
   const startTime = performance.now();
   const base64Audio = await blobToBase64(params.audioBlob);
   const cleanMime = params.mimeType.split(';')[0] || 'audio/webm';
 
+  // 1. Try serverless backend proxy endpoint first (/api/gemini-translate)
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (params.apiKey && params.apiKey.trim()) {
+      headers['x-gemini-key'] = params.apiKey.trim();
+    }
+
+    const serverlessRes = await fetch('/api/gemini-translate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        audioBase64: base64Audio,
+        mimeType: cleanMime,
+        targetLanguageCode: params.targetLanguageCode,
+        preferredSourceLanguageCode: params.preferredSourceLanguageCode,
+        recentContext: params.recentContext,
+        modelName: params.modelName,
+      }),
+    });
+
+    if (serverlessRes.ok) {
+      const data = await serverlessRes.json();
+      return {
+        utterances: data.utterances || [],
+        tokensEstimated: data.tokensEstimated || 0,
+        latencyMs: Math.round(performance.now() - startTime),
+      };
+    }
+
+    // If serverless returned an error and no client key is provided, throw the backend error
+    if (!params.apiKey || !params.apiKey.trim()) {
+      const errText = await serverlessRes.text();
+      throw new Error(`Gemini Serverless Error (${serverlessRes.status}): ${errText.slice(0, 180)}`);
+    }
+  } catch (backendErr) {
+    if (!params.apiKey || !params.apiKey.trim()) {
+      throw backendErr;
+    }
+  }
+
+  // 2. Direct browser fallback if client API key was explicitly provided
   const targetLang =
     SUPPORTED_LANGUAGES.find((l) => l.code === params.targetLanguageCode)?.name ||
     params.targetLanguageCode;
@@ -67,7 +110,7 @@ You listen to live audio captured from a user's mobile phone inside a church (of
 
 CRITICAL CHALLENGES YOU MUST SOLVE:
 1. MULTIPLE VOICES & LANGUAGES ON STAGE:
-   - Often Speaker 1 preaches in Language A (e.g. English) and Speaker 2 (an on-stage interpreter) translates into Language B (e.g. French or Spanish) right after.
+   - Often Speaker 1 preaches in Language A (e.g. English, Korean, Portuguese) and Speaker 2 (an on-stage interpreter) translates into Language B (e.g. French or Spanish) right after.
    - Separate each voice/language into its own item in the "utterances" array. Never merge two different speakers or languages into one utterance.
    - Assign consistent speakerId ("speaker_1" for the primary preacher, "speaker_2" for the second voice/stage interpreter).
 2. DIALECTS & ACCENTS:
@@ -86,7 +129,7 @@ ${
   const model = params.modelName || DEFAULT_GEMINI_MODEL;
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     model
-  )}:generateContent?key=${encodeURIComponent(params.apiKey.trim())}`;
+  )}:generateContent?key=${encodeURIComponent((params.apiKey || '').trim())}`;
 
   const response = await fetch(endpoint, {
     method: 'POST',

@@ -61,7 +61,7 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </button>
         </div>
 
-        {/* 1. Primary AI Engine Switcher (Deepgram Nova-2 vs Gemini 2.5 Flash) */}
+        {/* 1. Primary AI Engine Switcher (Deepgram Primary + Gemini Fallback vs Gemini Direct) */}
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
             <Radio className="w-4 h-4 text-sky-400" />
@@ -79,14 +79,14 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-bold text-sky-300 flex items-center gap-1">
-                  <Zap className="w-3.5 h-3.5" /> Deepgram Nova-2
+                  <Zap className="w-3.5 h-3.5" /> Deepgram + Gemini Fallback
                 </span>
                 {activeAiProvider === 'deepgram' && (
                   <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
                 )}
               </div>
               <p className="text-[11px] text-slate-400 leading-tight">
-                World's fastest diarization (&lt;300ms) • Uses your <strong>$200 free credit (~770 hrs free)</strong>
+                Sub-300ms ultra-low latency • <strong>Deepgram Nova-2 primary</strong> with automatic <strong>Gemini 2.5 Flash fallback</strong>
               </p>
             </button>
 
@@ -101,14 +101,14 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-bold text-emerald-300 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" /> Gemini 2.5 Flash
+                  <Sparkles className="w-3.5 h-3.5" /> Gemini 2.5 Flash Only
                 </span>
                 {activeAiProvider === 'gemini' && (
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 )}
               </div>
               <p className="text-[11px] text-slate-400 leading-tight">
-                Multimodal raw audio understanding • Great for regional dialects &amp; biblical terms
+                Direct multimodal raw audio pipeline • Handles complex biblical idioms &amp; regional accents
               </p>
             </button>
           </div>

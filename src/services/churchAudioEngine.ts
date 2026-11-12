@@ -2,6 +2,7 @@ import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/transla
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
+export type StreamEndedCallback = () => void;
 
 export class ChurchAudioEngine {
   private audioContext: AudioContext | null = null;
@@ -21,15 +22,18 @@ export class ChurchAudioEngine {
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
+  private onStreamEnded?: StreamEndedCallback;
 
   constructor(
     config: AudioProcessingConfig,
     onAudioChunk: AudioChunkCallback,
-    onMeterUpdate: MeterUpdateCallback
+    onMeterUpdate: MeterUpdateCallback,
+    onStreamEnded?: StreamEndedCallback
   ) {
     this.config = { ...config };
     this.onAudioChunk = onAudioChunk;
     this.onMeterUpdate = onMeterUpdate;
+    this.onStreamEnded = onStreamEnded;
   }
 
   public static async listAudioInputDevices(): Promise<MediaDeviceInfo[]> {
@@ -42,28 +46,67 @@ export class ChurchAudioEngine {
     }
   }
 
-  public async start(): Promise<void> {
+  public async start(sourceOverride?: 'mic' | 'tab'): Promise<void> {
     if (this.isRunning) return;
 
-    // Crucial for Android Church Back-Row Capture:
-    // Disabling OS noiseSuppression & autoGainControl stops Android from treating
-    // distant PA loudspeakers or reverberant sanctuary speech as "background noise".
-    const audioConstraints: MediaTrackConstraints = {
-      echoCancellation: !this.config.bypassOsProcessing,
-      noiseSuppression: !this.config.bypassOsProcessing,
-      autoGainControl: !this.config.bypassOsProcessing,
-      channelCount: 1,
-      sampleRate: 16000,
-    };
+    const source = sourceOverride || this.config.audioSource || 'mic';
 
-    if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') {
-      audioConstraints.deviceId = { exact: this.config.selectedDeviceId };
+    if (source === 'tab') {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error(
+          'Browser tab audio capture is not supported in this browser. Please use Chrome, Edge, or Brave on desktop.'
+        );
+      }
+
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+
+      const audioTracks = displayStream.getAudioTracks();
+      if (!audioTracks || audioTracks.length === 0) {
+        displayStream.getTracks().forEach((t) => t.stop());
+        throw new Error(
+          'No audio stream detected. Please ensure you check "Also share tab audio" when selecting the browser tab.'
+        );
+      }
+
+      // Automatically handle when user clicks "Stop sharing" in browser banner
+      displayStream.getTracks().forEach((track) => {
+        track.onended = () => {
+          if (this.isRunning) {
+            this.stop();
+            this.onStreamEnded?.();
+          }
+        };
+      });
+
+      this.rawStream = displayStream;
+    } else {
+      // Crucial for Android Church Back-Row Capture:
+      // Disabling OS noiseSuppression & autoGainControl stops Android from treating
+      // distant PA loudspeakers or reverberant sanctuary speech as "background noise".
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: !this.config.bypassOsProcessing,
+        noiseSuppression: !this.config.bypassOsProcessing,
+        autoGainControl: !this.config.bypassOsProcessing,
+        channelCount: 1,
+        sampleRate: 16000,
+      };
+
+      if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') {
+        audioConstraints.deviceId = { exact: this.config.selectedDeviceId };
+      }
+
+      this.rawStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
     }
-
-    this.rawStream = await navigator.mediaDevices.getUserMedia({
-      audio: audioConstraints,
-      video: false,
-    });
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.audioContext = new AudioCtx({ sampleRate: 16000 });

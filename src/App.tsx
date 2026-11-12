@@ -14,6 +14,7 @@ import {
   Check,
   Rows2,
   Trash2,
+  Tv,
 } from 'lucide-react';
 import type {
   AudioMeterSnapshot,
@@ -480,53 +481,121 @@ export function App() {
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;
 
-      // 1. Process with Deepgram Nova-2 (Uses $200 free credit, <300ms diarization)
-      if (activeProvider === 'deepgram' && currentDgKey) {
+      // 1. Process with Deepgram Nova-2 as Primary (Serverless backend proxy or client key)
+      if (activeProvider === 'deepgram') {
         setIsProcessingChunk(true);
+        let deepgramFailed = false;
+        let deepgramError = '';
+
         try {
           const result = await transcribeAndTranslateWithDeepgram({
             audioBlob,
             mimeType,
             targetLanguageCode: targetLangRef.current,
-            deepgramApiKey: currentDgKey,
+            deepgramApiKey: currentDgKey || undefined,
             sourceLanguageCode: speaker1LangRef.current,
           });
 
-          setWallet((prev) => {
-            const addedSec = Math.round(durationMs / 1000);
-            const totalSec = prev.sessionSecondsUsed + addedSec;
-            return {
-              ...prev,
-              sessionSecondsUsed: totalSec,
-              minutesRemaining: Math.max(0, prev.totalMinutesPurchased - Math.floor(totalSec / 60)),
-            };
-          });
-
-          for (const utt of result.utterances) {
-            upsertSpeakerAndAppendSegment({
-              speakerId: utt.speakerId,
-              speakerLabel: utt.speakerLabel,
-              roleHint: utt.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
-              sourceLanguageCode: utt.sourceLanguageCode,
-              sourceLanguageName: utt.sourceLanguageName,
-              detectedDialect: utt.detectedDialect,
-              originalText: utt.originalText,
-              translatedText: utt.translatedText,
-              backgroundNoiseNote: utt.backgroundNoiseNote,
-              latencyMs: utt.latencyMs,
+          if (result.utterances && result.utterances.length > 0) {
+            setWallet((prev) => {
+              const addedSec = Math.round(durationMs / 1000);
+              const totalSec = prev.sessionSecondsUsed + addedSec;
+              return {
+                ...prev,
+                sessionSecondsUsed: totalSec,
+                minutesRemaining: Math.max(0, prev.totalMinutesPurchased - Math.floor(totalSec / 60)),
+              };
             });
+
+            for (const utt of result.utterances) {
+              upsertSpeakerAndAppendSegment({
+                speakerId: utt.speakerId,
+                speakerLabel: utt.speakerLabel,
+                roleHint: utt.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
+                sourceLanguageCode: utt.sourceLanguageCode,
+                sourceLanguageName: utt.sourceLanguageName,
+                detectedDialect: utt.detectedDialect,
+                originalText: utt.originalText,
+                translatedText: utt.translatedText,
+                backgroundNoiseNote: utt.backgroundNoiseNote,
+                latencyMs: utt.latencyMs,
+              });
+            }
+            setErrorNotice(null);
+            setIsProcessingChunk(false);
+            return;
+          } else {
+            // No utterances returned from Deepgram, try Gemini fallback
+            deepgramFailed = true;
           }
-          setErrorNotice(null);
         } catch (err) {
-          setErrorNotice(err instanceof Error ? err.message : 'Deepgram translation failed');
-        } finally {
-          setIsProcessingChunk(false);
+          deepgramFailed = true;
+          deepgramError = err instanceof Error ? err.message : 'Deepgram request failed';
         }
+
+        // Automatic Fallback to Google Gemini 2.5 Flash if Deepgram failed or returned empty
+        if (deepgramFailed) {
+          try {
+            const recentContext = segmentsRef.current
+              .slice(-3)
+              .map((s) => `${s.speakerLabel}: ${s.originalText}`);
+
+            const geminiResult = await translateChurchStageAudioChunk({
+              audioBlob,
+              mimeType,
+              targetLanguageCode: targetLangRef.current,
+              preferredSourceLanguageCode: speaker1LangRef.current,
+              recentContext,
+              apiKey: currentGeminiKey || undefined,
+            });
+
+            if (geminiResult.utterances && geminiResult.utterances.length > 0) {
+              setWallet((prev) => {
+                const addedSec = Math.round(durationMs / 1000);
+                const totalSec = prev.sessionSecondsUsed + addedSec;
+                return {
+                  ...prev,
+                  sessionSecondsUsed: totalSec,
+                  sessionTokensUsed: prev.sessionTokensUsed + geminiResult.tokensEstimated,
+                  minutesRemaining: Math.max(
+                    0,
+                    prev.totalMinutesPurchased - Math.floor(totalSec / 60)
+                  ),
+                };
+              });
+
+              for (const utt of geminiResult.utterances) {
+                upsertSpeakerAndAppendSegment({
+                  speakerId: utt.speakerId || 'speaker_1',
+                  speakerLabel: utt.speakerLabel || 'Speaker 1',
+                  roleHint: utt.roleHint || 'main-speaker',
+                  sourceLanguageCode: utt.sourceLanguageCode || 'en',
+                  sourceLanguageName: utt.sourceLanguageName || 'English',
+                  detectedDialect: utt.detectedDialect,
+                  originalText: utt.originalText,
+                  translatedText: utt.translatedText,
+                  backgroundNoiseNote: utt.backgroundNoiseNote,
+                  latencyMs: geminiResult.latencyMs,
+                });
+              }
+              setErrorNotice(null);
+            }
+          } catch (geminiErr) {
+            const geminiMsg =
+              geminiErr instanceof Error ? geminiErr.message : 'Gemini fallback failed';
+            // Only show notice if both engines failed
+            if (deepgramError) {
+              setErrorNotice(`Deepgram: ${deepgramError} | Gemini: ${geminiMsg}`);
+            }
+          }
+        }
+
+        setIsProcessingChunk(false);
         return;
       }
 
-      // 2. Process with Gemini 2.5 Flash if Gemini is selected and key present
-      if (activeProvider === 'gemini' && currentGeminiKey) {
+      // 2. Process with Gemini 2.5 Flash directly if explicitly selected
+      if (activeProvider === 'gemini') {
         setIsProcessingChunk(true);
         try {
           const recentContext = segmentsRef.current
@@ -539,7 +608,7 @@ export function App() {
             targetLanguageCode: targetLangRef.current,
             preferredSourceLanguageCode: speaker1LangRef.current,
             recentContext,
-            apiKey: currentGeminiKey,
+            apiKey: currentGeminiKey || undefined,
           });
 
           setWallet((prev) => {
@@ -645,37 +714,25 @@ export function App() {
             void handleAudioChunkReady(blob, mime, dur);
           }
         },
-        (snapshot) => setMeter(snapshot)
+        (snapshot) => setMeter(snapshot),
+        () => {
+          setIsListening(false);
+          audioEngineRef.current = null;
+          deepgramWsRef.current?.close();
+          deepgramWsRef.current = null;
+        }
       );
-      await engine.start();
+      await engine.start(audioConfig.audioSource || 'mic');
       audioEngineRef.current = engine;
-
-      // Only start browser speech fallback if neither Deepgram nor Gemini is connected
-      if (!deepgramKeyRef.current && !apiKeyRef.current && BrowserLiveSpeechFallback.isSupported()) {
-        const fb = new BrowserLiveSpeechFallback(
-          speaker1LangRef.current,
-          targetLangRef.current,
-          (ev) => {
-            upsertSpeakerAndAppendSegment({
-              speakerId: 'speaker_1',
-              speakerLabel: 'Speaker 1',
-              roleHint: 'main-speaker',
-              sourceLanguageCode: ev.sourceLanguageCode,
-              sourceLanguageName: ev.sourceLanguageName,
-              originalText: ev.originalText,
-              translatedText: ev.translatedText,
-              latencyMs: ev.latencyMs,
-            });
-          }
-        );
-        fb.start();
-        fallbackEngineRef.current = fb;
-      }
 
       setIsListening(true);
     } catch (err) {
       const msg =
-        err instanceof Error ? err.message : 'Microphone permission denied.';
+        err instanceof Error
+          ? err.message
+          : audioConfig.audioSource === 'tab'
+          ? 'Browser tab audio capture was cancelled or failed.'
+          : 'Microphone permission denied.';
       setErrorNotice(msg);
     }
   };
@@ -1020,6 +1077,16 @@ export function App() {
           </div>
         )}
 
+        {/* Tab Audio Streaming Active Banner */}
+        {isListening && audioConfig.audioSource === 'tab' && (
+          <div className="mx-4 mt-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Direct Tab / YouTube Stream Active (Pristine Digital Audio)
+            </span>
+          </div>
+        )}
+
         {/* MAIN TRANSLATION READER AREA */}
         <main className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
           {segments.length === 0 ? (
@@ -1096,7 +1163,50 @@ export function App() {
         </main>
 
         {/* SIMPLE 3-BUTTON THUMB BAR AT BOTTOM OF ANDROID PHONE */}
-        <footer className="px-5 pt-3 pb-5 bg-slate-950/95 border-t border-slate-900 shrink-0">
+        <footer className="px-5 pt-2.5 pb-5 bg-slate-950/95 border-t border-slate-900 shrink-0">
+          {/* Quick Audio Source Selector: Physical Mic vs Tab / YouTube */}
+          <div className="flex items-center justify-center mb-2">
+            <div className="inline-flex bg-slate-900/90 border border-slate-800 rounded-full p-0.5 shadow-inner">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isListening && (audioConfig.audioSource || 'mic') !== 'mic') {
+                    audioEngineRef.current?.stop();
+                    setIsListening(false);
+                  }
+                  setAudioConfig((prev) => ({ ...prev, audioSource: 'mic' }));
+                }}
+                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  (audioConfig.audioSource || 'mic') === 'mic'
+                    ? 'bg-sky-500 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Mic className="w-3 h-3" />
+                Mic (Room)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (isListening && audioConfig.audioSource !== 'tab') {
+                    audioEngineRef.current?.stop();
+                    setIsListening(false);
+                  }
+                  setAudioConfig((prev) => ({ ...prev, audioSource: 'tab' }));
+                }}
+                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                  audioConfig.audioSource === 'tab'
+                    ? 'bg-emerald-400 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Tv className="w-3 h-3" />
+                Tab / YouTube
+              </button>
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             {/* Left Button: Earphones Audio ON / OFF */}
             <button
@@ -1126,7 +1236,7 @@ export function App() {
               </span>
             </button>
 
-            {/* Center Primary Microphone / Stop Button */}
+            {/* Center Primary Microphone / Tab Audio / Stop Button */}
             <div className="flex flex-col items-center">
               <button
                 type="button"
@@ -1134,6 +1244,8 @@ export function App() {
                 className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition transform active:scale-95 cursor-pointer relative ${
                   isListening || isSimulatingStage
                     ? 'bg-rose-500 text-slate-950 shadow-rose-500/30'
+                    : audioConfig.audioSource === 'tab'
+                    ? 'bg-emerald-400 text-slate-950 shadow-emerald-500/30'
                     : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
                 }`}
               >
@@ -1144,6 +1256,8 @@ export function App() {
                   <Sparkles className="w-7 h-7 animate-spin" />
                 ) : isListening || isSimulatingStage ? (
                   <Square className="w-6 h-6 fill-current" />
+                ) : audioConfig.audioSource === 'tab' ? (
+                  <Tv className="w-7 h-7" />
                 ) : (
                   <Mic className="w-7 h-7" />
                 )}
@@ -1152,7 +1266,11 @@ export function App() {
                 {isSimulatingStage
                   ? 'Tap to Stop Demo'
                   : isListening
-                  ? 'Tap to Stop Mic'
+                  ? audioConfig.audioSource === 'tab'
+                    ? 'Stop Tab Stream'
+                    : 'Tap to Stop Mic'
+                  : audioConfig.audioSource === 'tab'
+                  ? 'Capture Tab Audio'
                   : 'Tap to Listen'}
               </span>
             </div>

@@ -19,7 +19,7 @@ export async function transcribeAndTranslateWithDeepgram(params: {
   audioBlob: Blob;
   mimeType: string;
   targetLanguageCode: string;
-  deepgramApiKey: string;
+  deepgramApiKey?: string;
   sourceLanguageCode?: string; // 'pt', 'en', 'es', or 'auto'
 }): Promise<DeepgramTranslationResult> {
   const t0 = performance.now();
@@ -28,14 +28,19 @@ export async function transcribeAndTranslateWithDeepgram(params: {
   // Call serverless proxy endpoint to avoid browser CORS restrictions
   const endpoint = '/api/deepgram-transcribe';
 
+  const headers: Record<string, string> = {
+    'x-source-lang': params.sourceLanguageCode || 'auto',
+    'x-target-lang': params.targetLanguageCode || 'en',
+    'Content-Type': cleanMime,
+  };
+
+  if (params.deepgramApiKey && params.deepgramApiKey.trim()) {
+    headers['x-deepgram-key'] = params.deepgramApiKey.trim();
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'x-deepgram-key': params.deepgramApiKey.trim(),
-      'x-source-lang': params.sourceLanguageCode || 'auto',
-      'x-target-lang': params.targetLanguageCode || 'en',
-      'Content-Type': cleanMime,
-    },
+    headers,
     body: params.audioBlob,
   });
 

@@ -90,8 +90,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const t0 = Date.now();
 
+    const deeplKey =
+      process.env.DEEPL_API_KEY ||
+      (req.headers['x-deepl-key'] as string) ||
+      '';
+
     const translateHelper = async (text: string, src: string, tgt: string) => {
       if (src.toLowerCase() === tgt.toLowerCase()) return text;
+
+      // 1. Try DeepL API first if key exists
+      if (deeplKey) {
+        try {
+          const isFreeTier = deeplKey.endsWith(':fx');
+          const deeplEndpoint = isFreeTier
+            ? 'https://api-free.deepl.com/v2/translate'
+            : 'https://api.deepl.com/v2/translate';
+
+          let deeplTarget = tgt.toUpperCase();
+          if (deeplTarget === 'EN') deeplTarget = 'EN-US';
+          if (deeplTarget === 'PT') deeplTarget = 'PT-BR';
+
+          const deeplPayload: Record<string, unknown> = {
+            text: [text],
+            target_lang: deeplTarget,
+          };
+          if (src && src !== 'auto') {
+            deeplPayload.source_lang = src.toUpperCase();
+          }
+
+          const deeplRes = await fetch(deeplEndpoint, {
+            method: 'POST',
+            headers: {
+              Authorization: `DeepL-Auth-Key ${deeplKey.trim()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(deeplPayload),
+          });
+
+          if (deeplRes.ok) {
+            const deeplData = await deeplRes.json();
+            const translated = deeplData?.translations?.[0]?.text;
+            if (translated) return translated;
+          }
+        } catch {
+          // Fall through to Google Translate fallback
+        }
+      }
+
+      // 2. High-performance fallback: Google Neural translation
       try {
         const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
           src

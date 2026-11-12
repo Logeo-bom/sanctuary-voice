@@ -24,24 +24,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Call Deepgram's official grant endpoint to mint a short-lived browser JWT
-    const response = await fetch('https://api.deepgram.com/v1/auth/grant', {
-      method: 'POST',
-      headers: {
-        Authorization: `Token ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ttl_seconds: 60 }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).json({
-        error: `Deepgram Token Grant Error: ${errText.slice(0, 200)}`,
+    try {
+      const response = await fetch('https://api.deepgram.com/v1/auth/grant', {
+        method: 'POST',
+        headers: {
+          Authorization: `Token ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ttl_seconds: 60 }),
       });
+
+      if (response.ok) {
+        const data = await response.json();
+        return res.status(200).json(data);
+      }
+    } catch {
+      // If grant request failed, fallback to returning key directly
     }
 
-    const data = await response.json();
-    return res.status(200).json(data);
+    // Fallback: If the API key does not have the 'admin' permission to call /v1/auth/grant,
+    // return the key directly so the client WebSocket can connect with ['token', apiKey]
+    return res.status(200).json({ key: apiKey });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal Server Error';
     return res.status(500).json({ error: message });

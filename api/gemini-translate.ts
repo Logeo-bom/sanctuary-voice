@@ -100,7 +100,7 @@ ${
 }`;
 
     const cleanMime = mimeType.split(';')[0] || 'audio/webm';
-    const modelsToTry = [modelName, 'gemini-2.5-flash', 'gemini-1.5-flash'].filter(Boolean) as string[];
+    const modelsToTry = [modelName, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash'].filter(Boolean) as string[];
 
     let lastError = '';
     const startTime = Date.now();

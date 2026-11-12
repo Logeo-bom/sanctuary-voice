@@ -43,33 +43,6 @@ const STORAGE_KEY_SPEECH_CONFIG = 'sanctuary_voice_speech_config_v1';
 const STORAGE_KEY_SOURCE_LANG = 'sanctuary_voice_source_lang_v1';
 const STORAGE_KEY_TARGET_LANG = 'sanctuary_voice_target_lang_v1';
 
-const DEFAULT_STAGE_SPEAKERS: StageSpeaker[] = [
-  {
-    id: 'speaker_1',
-    label: 'Speaker 1',
-    roleHint: 'main-speaker',
-    detectedLanguageCode: 'en',
-    detectedLanguageName: 'English',
-    detectedDialect: 'Main Stage Voice',
-    accentColor: '#38bdf8',
-    segmentCount: 0,
-    lastActiveAt: 0,
-    isIgnored: false,
-  },
-  {
-    id: 'speaker_2',
-    label: 'Translator 2',
-    roleHint: 'stage-interpreter',
-    detectedLanguageCode: 'fr',
-    detectedLanguageName: 'French',
-    detectedDialect: 'Stage Interpreter',
-    accentColor: '#fbbf24',
-    segmentCount: 0,
-    lastActiveAt: 0,
-    isIgnored: false,
-  },
-];
-
 export function App() {
   const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEY_SOURCE_LANG) || 'auto';
@@ -77,7 +50,39 @@ export function App() {
   const [targetLangCode, setTargetLangCode] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEY_TARGET_LANG) || 'no';
   });
-  const [speakers, setSpeakers] = useState<StageSpeaker[]>(DEFAULT_STAGE_SPEAKERS);
+  const [speakers, setSpeakers] = useState<StageSpeaker[]>(() => {
+    const initialSource = localStorage.getItem(STORAGE_KEY_SOURCE_LANG) || 'auto';
+    const initialTarget = localStorage.getItem(STORAGE_KEY_TARGET_LANG) || 'no';
+    const sourceMeta = SUPPORTED_LANGUAGES.find((l) => l.code === initialSource);
+    const targetMeta = SUPPORTED_LANGUAGES.find((l) => l.code === initialTarget);
+
+    return [
+      {
+        id: 'speaker_1',
+        label: 'Speaker 1',
+        roleHint: 'main-speaker',
+        detectedLanguageCode: initialSource,
+        detectedLanguageName: initialSource === 'auto' ? 'Auto' : sourceMeta?.name || initialSource,
+        detectedDialect: 'Main Stage Voice',
+        accentColor: '#38bdf8',
+        segmentCount: 0,
+        lastActiveAt: 0,
+        isIgnored: false,
+      },
+      {
+        id: 'speaker_2',
+        label: 'Translator 2',
+        roleHint: 'stage-interpreter',
+        detectedLanguageCode: initialTarget,
+        detectedLanguageName: targetMeta?.name || initialTarget,
+        detectedDialect: 'Stage Interpreter',
+        accentColor: '#fbbf24',
+        segmentCount: 0,
+        lastActiveAt: 0,
+        isIgnored: false,
+      },
+    ];
+  });
   const [segments, setSegments] = useState<TranslationSegment[]>([]);
 
   // Simple voice filter: 'all' | 'split' | 'speaker_1' | 'speaker_2'
@@ -161,21 +166,50 @@ export function App() {
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
   const speakersRef = useRef<StageSpeaker[]>(speakers);
-  speakersRef.current = speakers;
   const speaker1LangRef = useRef<string>(speaker1SourceLang);
-  speaker1LangRef.current = speaker1SourceLang;
   const targetLangRef = useRef<string>(targetLangCode);
-  targetLangRef.current = targetLangCode;
   const voiceViewModeRef = useRef<string>(voiceViewMode);
-  voiceViewModeRef.current = voiceViewMode;
   const apiKeyRef = useRef<string>(apiKey);
-  apiKeyRef.current = apiKey;
   const deepgramKeyRef = useRef<string>(deepgramKey);
-  deepgramKeyRef.current = deepgramKey;
   const aiProviderRef = useRef<'deepgram' | 'gemini'>(aiProvider);
-  aiProviderRef.current = aiProvider;
   const segmentsRef = useRef<TranslationSegment[]>(segments);
-  segmentsRef.current = segments;
+  const isSimulatingStageRef = useRef<boolean>(isSimulatingStage);
+
+  useEffect(() => {
+    speakersRef.current = speakers;
+  }, [speakers]);
+
+  useEffect(() => {
+    speaker1LangRef.current = speaker1SourceLang;
+  }, [speaker1SourceLang]);
+
+  useEffect(() => {
+    targetLangRef.current = targetLangCode;
+  }, [targetLangCode]);
+
+  useEffect(() => {
+    voiceViewModeRef.current = voiceViewMode;
+  }, [voiceViewMode]);
+
+  useEffect(() => {
+    apiKeyRef.current = apiKey;
+  }, [apiKey]);
+
+  useEffect(() => {
+    deepgramKeyRef.current = deepgramKey;
+  }, [deepgramKey]);
+
+  useEffect(() => {
+    aiProviderRef.current = aiProvider;
+  }, [aiProvider]);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
+  useEffect(() => {
+    isSimulatingStageRef.current = isSimulatingStage;
+  }, [isSimulatingStage]);
 
   useEffect(() => {
     speechEngineRef.current = new EarphoneSpeechEngine(speechConfig);
@@ -187,7 +221,7 @@ export function App() {
         window.clearInterval(simulationTimerRef.current);
       }
     };
-  }, []);
+  }, [speechConfig]);
 
   useEffect(() => {
     fallbackEngineRef.current?.setLanguages(speaker1SourceLang, targetLangCode);
@@ -207,7 +241,7 @@ export function App() {
         s.id === 'speaker_1'
           ? {
               ...s,
-              detectedLanguageCode: newLangCode === 'auto' ? 'en' : newLangCode,
+              detectedLanguageCode: newLangCode,
               detectedLanguageName:
                 newLangCode === 'auto' ? 'Auto' : langMeta?.name || newLangCode,
             }
@@ -222,6 +256,19 @@ export function App() {
     localStorage.setItem(STORAGE_KEY_TARGET_LANG, newTargetCode);
     targetLangRef.current = newTargetCode;
     speechEngineRef.current?.stopAll();
+
+    const targetLangMeta = SUPPORTED_LANGUAGES.find((l) => l.code === newTargetCode);
+    setSpeakers((prev) =>
+      prev.map((s) =>
+        s.id === 'speaker_2'
+          ? {
+              ...s,
+              detectedLanguageCode: newTargetCode,
+              detectedLanguageName: targetLangMeta?.name || newTargetCode,
+            }
+          : s
+      )
+    );
 
     const preset = STAGE_SIMULATION_PRESETS[0];
     setSegments((prev) => {
@@ -315,6 +362,8 @@ export function App() {
 
       if (!speaker) {
         const colorIndex = currentSpeakers.length % SPEAKER_PALETTE.length;
+        const targetMeta = SUPPORTED_LANGUAGES.find((l) => l.code === targetLangRef.current);
+        const speaker1Meta = SUPPORTED_LANGUAGES.find((l) => l.code === speaker1LangRef.current);
         speaker = {
           id: params.speakerId,
           label:
@@ -324,8 +373,18 @@ export function App() {
               ? 'Translator 2'
               : params.speakerLabel,
           roleHint: params.roleHint,
-          detectedLanguageCode: params.sourceLanguageCode,
-          detectedLanguageName: params.sourceLanguageName,
+          detectedLanguageCode:
+            params.speakerId === 'speaker_2'
+              ? targetLangRef.current
+              : params.speakerId === 'speaker_1' && speaker1LangRef.current !== 'auto'
+              ? speaker1LangRef.current
+              : params.sourceLanguageCode,
+          detectedLanguageName:
+            params.speakerId === 'speaker_2'
+              ? targetMeta?.name || targetLangRef.current
+              : params.speakerId === 'speaker_1' && speaker1LangRef.current !== 'auto'
+              ? speaker1Meta?.name || speaker1LangRef.current
+              : params.sourceLanguageName,
           detectedDialect: params.detectedDialect,
           accentColor: SPEAKER_PALETTE[colorIndex],
           segmentCount: 1,
@@ -334,12 +393,22 @@ export function App() {
         };
         currentSpeakers.push(speaker);
       } else {
+        const targetMeta = SUPPORTED_LANGUAGES.find((l) => l.code === targetLangRef.current);
+        const speaker1Meta = SUPPORTED_LANGUAGES.find((l) => l.code === speaker1LangRef.current);
         speaker = {
           ...speaker,
           detectedLanguageCode:
-            params.sourceLanguageCode || speaker.detectedLanguageCode,
+            params.speakerId === 'speaker_2'
+              ? targetLangRef.current
+              : params.speakerId === 'speaker_1' && speaker1LangRef.current !== 'auto'
+              ? speaker1LangRef.current
+              : params.sourceLanguageCode || speaker.detectedLanguageCode,
           detectedLanguageName:
-            params.sourceLanguageName || speaker.detectedLanguageName,
+            params.speakerId === 'speaker_2'
+              ? targetMeta?.name || targetLangRef.current
+              : params.speakerId === 'speaker_1' && speaker1LangRef.current !== 'auto'
+              ? speaker1Meta?.name || speaker1LangRef.current
+              : params.sourceLanguageName || speaker.detectedLanguageName,
           detectedDialect: params.detectedDialect || speaker.detectedDialect,
           segmentCount: speaker.segmentCount + 1,
           lastActiveAt: Date.now(),
@@ -386,7 +455,7 @@ export function App() {
 
       // In stage simulation mode, only translate and speak Speaker 1.
       // Translator 2 (the stage interpreter) is never spoken into earphones.
-      const isSimulation = isSimulatingStage;
+      const isSimulation = isSimulatingStageRef.current;
       const isTargetSpeaker = !isSimulation || params.speakerId === 'speaker_1';
       const shouldSpeakInEarphones =
         !isMutedByLock &&

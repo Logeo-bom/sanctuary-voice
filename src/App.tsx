@@ -957,6 +957,15 @@ export function App() {
 
           {speakers.map((spk) => {
             const isSelected = voiceViewMode === spk.id;
+            const displayCode =
+              spk.id === 'speaker_1'
+                ? speaker1SourceLang === 'auto'
+                  ? 'Auto'
+                  : speaker1SourceLang.toUpperCase()
+                : spk.id === 'speaker_2'
+                ? targetLangCode.toUpperCase()
+                : (spk.detectedLanguageCode || '').toUpperCase();
+
             return (
               <button
                 key={spk.id}
@@ -975,7 +984,7 @@ export function App() {
                   className="w-2 h-2 rounded-full"
                   style={{ backgroundColor: spk.accentColor }}
                 />
-                {spk.label} ({spk.detectedLanguageCode.toUpperCase()})
+                {spk.label} ({displayCode})
                 {isSelected && <Check className="w-3 h-3" />}
               </button>
             );
@@ -1040,6 +1049,15 @@ export function App() {
             <div className="h-full flex flex-col gap-3">
               {speakers.slice(0, 2).map((spk) => {
                 const spkSegments = segments.filter((s) => s.speakerId === spk.id);
+                const displayName =
+                  spk.id === 'speaker_1'
+                    ? speaker1SourceLang === 'auto'
+                      ? 'Auto-Detect'
+                      : SUPPORTED_LANGUAGES.find((l) => l.code === speaker1SourceLang)?.name || speaker1SourceLang
+                    : spk.id === 'speaker_2'
+                    ? SUPPORTED_LANGUAGES.find((l) => l.code === targetLangCode)?.name || targetLangCode
+                    : spk.detectedLanguageName;
+
                 return (
                   <div
                     key={spk.id}
@@ -1051,7 +1069,7 @@ export function App() {
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: spk.accentColor }}
                         />
-                        {spk.label} • {spk.detectedLanguageName}
+                        {spk.label} • {displayName}
                       </div>
                       <button
                         type="button"

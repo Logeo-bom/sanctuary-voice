@@ -675,12 +675,35 @@ export function App() {
 
       setIsListening(true);
     } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : audioConfig.audioSource === 'tab'
-          ? 'Browser tab audio capture was cancelled or failed.'
-          : 'Microphone permission denied.';
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      const rawMsg = err instanceof Error ? err.message : '';
+      const isPermissionDenied =
+        rawMsg.toLowerCase().includes('permission denied') ||
+        rawMsg.toLowerCase().includes('notallowederror') ||
+        rawMsg.toLowerCase().includes('cancelled') ||
+        rawMsg.toLowerCase().includes('canceled');
+
+      let msg = rawMsg;
+      if (audioConfig.audioSource === 'tab') {
+        if (isMobile) {
+          msg =
+            'TAB / Online Sermon direct audio capture is only available on Desktop browsers (Chrome, Edge, Brave). On mobile devices, please use "Mic (Room)".';
+        } else if (isPermissionDenied) {
+          msg =
+            'Tab audio capture was cancelled or denied. Please ensure you select a tab on desktop and check "Share tab audio", or switch to "Mic (Room)".';
+        } else {
+          msg = msg || 'Browser tab audio capture was cancelled or failed.';
+        }
+      } else {
+        if (isPermissionDenied) {
+          msg =
+            'Microphone permission was denied. Please allow microphone access in your browser settings to listen.';
+        } else {
+          msg = msg || 'Microphone capture failed.';
+        }
+      }
       setErrorNotice(msg);
     }
   };
@@ -895,15 +918,30 @@ export function App() {
 
         {/* Error Notice if any */}
         {errorNotice && (
-          <div className="mx-4 mt-2 p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-200 flex items-center justify-between">
-            <span className="truncate">{errorNotice}</span>
-            <button
-              type="button"
-              onClick={() => setErrorNotice(null)}
-              className="text-rose-300 font-bold ml-2"
-            >
-              ✕
-            </button>
+          <div className="mx-4 mt-2 p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-200 flex flex-col gap-1.5 shadow-sm">
+            <div className="flex items-start justify-between gap-2">
+              <span className="leading-snug flex-1">{errorNotice}</span>
+              <button
+                type="button"
+                onClick={() => setErrorNotice(null)}
+                className="text-rose-300 font-bold px-1 hover:text-white shrink-0 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            {audioConfig.audioSource === 'tab' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAudioConfig((prev) => ({ ...prev, audioSource: 'mic' }));
+                  setErrorNotice(null);
+                }}
+                className="self-start px-2.5 py-1 rounded-lg bg-sky-500 text-slate-950 font-bold text-[10px] flex items-center gap-1 shadow hover:bg-sky-400 transition cursor-pointer"
+              >
+                <Mic className="w-3 h-3" />
+                Switch to Mic (Room)
+              </button>
+            )}
           </div>
         )}
 
@@ -1003,6 +1041,7 @@ export function App() {
                     setIsListening(false);
                   }
                   setAudioConfig((prev) => ({ ...prev, audioSource: 'mic' }));
+                  setErrorNotice(null);
                 }}
                 className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                   (audioConfig.audioSource || 'mic') === 'mic'
@@ -1022,15 +1061,17 @@ export function App() {
                     setIsListening(false);
                   }
                   setAudioConfig((prev) => ({ ...prev, audioSource: 'tab' }));
+                  setErrorNotice(null);
                 }}
                 className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                   audioConfig.audioSource === 'tab'
                     ? 'bg-emerald-400 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
+                title="Capture browser tab audio directly (Desktop Chrome/Edge/Brave)"
               >
                 <Tv className="w-3 h-3" />
-                TAB / Online Sermon
+                TAB / Online (Desktop)
               </button>
             </div>
           </div>

@@ -52,26 +52,55 @@ export class ChurchAudioEngine {
     const source = sourceOverride || this.config.audioSource || 'mic';
 
     if (source === 'tab') {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
+      const isMobile =
+        typeof navigator !== 'undefined' &&
+        /Mobi|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent || ''
+        );
+
+      if (isMobile) {
         throw new Error(
-          'Browser tab audio capture is not supported in this browser. Please use Chrome, Edge, or Brave on desktop.'
+          'TAB / Online Sermon direct audio capture is only available on Desktop browsers (Chrome, Edge, Brave). On mobile devices, please select "Mic (Room)".'
         );
       }
 
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error(
+          'Browser tab audio capture is not supported in this browser. Please use Chrome, Edge, or Brave on desktop, or select "Mic (Room)".'
+        );
+      }
+
+      let displayStream: MediaStream;
+      try {
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error) {
+          if (
+            err.name === 'NotAllowedError' ||
+            err.message.toLowerCase().includes('permission denied') ||
+            err.message.toLowerCase().includes('cancelled') ||
+            err.message.toLowerCase().includes('canceled')
+          ) {
+            throw new Error(
+              'Tab audio capture was cancelled or denied. Please ensure you are on desktop and select "Share tab audio", or switch to "Mic (Room)".'
+            );
+          }
+        }
+        throw err;
+      }
 
       const audioTracks = displayStream.getAudioTracks();
       if (!audioTracks || audioTracks.length === 0) {
         displayStream.getTracks().forEach((t) => t.stop());
         throw new Error(
-          'No audio stream detected. Please ensure you check "Also share tab audio" when selecting the browser tab.'
+          'No tab audio detected. Please select a Chrome/Browser Tab and check "Also share tab audio".'
         );
       }
 

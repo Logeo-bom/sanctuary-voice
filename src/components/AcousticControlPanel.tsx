@@ -273,10 +273,10 @@ export const AcousticControlPanel: React.FC<AcousticControlPanelProps> = ({
             <div>
               <div className="text-xs font-semibold flex items-center gap-1.5">
                 <Tv className="w-3.5 h-3.5 text-emerald-400" />
-                TAB / Online Sermon
+                TAB / Online (Desktop)
               </div>
               <div className="text-[10px] text-slate-400 leading-tight mt-0.5">
-                Pure digital stream (100% clarity)
+                Pure digital stream (Chrome/Edge)
               </div>
             </div>
             {config.audioSource === 'tab' && (

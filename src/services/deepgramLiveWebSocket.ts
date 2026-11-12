@@ -26,9 +26,12 @@ export class DeepgramLiveWebSocket {
   private accumulatedWords: string[] = [];
   private currentSpeakerNum = 0;
   private flushTimer: number | null = null;
+  private keepAliveTimer: number | null = null;
   private lastFlushedText = '';
   private lastFlushedAt = 0;
   private lastChunkText = '';
+  private isReconnecting = false;
+  private accessToken = '';
 
   constructor(
     apiKey: string,
@@ -75,6 +78,8 @@ export class DeepgramLiveWebSocket {
       throw new Error('No Deepgram API key or temporary token available');
     }
 
+    this.accessToken = accessToken;
+
     return new Promise((resolve, reject) => {
       try {
         // If specific language is chosen (e.g. 'ko', 'pt', 'en'), pin directly to it.
@@ -90,6 +95,7 @@ export class DeepgramLiveWebSocket {
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
         this.socket.onopen = () => {
+          this.startKeepAlive();
           resolve();
         };
 
@@ -148,7 +154,12 @@ export class DeepgramLiveWebSocket {
         };
 
         this.socket.onclose = () => {
+          this.stopKeepAlive();
           void this.flushAccumulatedSentence();
+          // Auto-reconnect if unexpectedly closed while still active
+          if (!this.isReconnecting && this.accessToken) {
+            this.attemptReconnect();
+          }
         };
       } catch (err) {
         reject(err);
@@ -231,12 +242,50 @@ export class DeepgramLiveWebSocket {
   }
 
   public close(): void {
+    this.stopKeepAlive();
+    this.accessToken = ''; // Prevent auto-reconnect on deliberate close
     if (this.socket) {
       try {
         this.socket.close();
       } catch {}
       this.socket = null;
     }
+  }
+
+  private startKeepAlive(): void {
+    this.stopKeepAlive();
+    this.keepAliveTimer = window.setInterval(() => {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        try {
+          this.socket.send(JSON.stringify({ type: 'KeepAlive' }));
+        } catch {}
+      }
+    }, 5000);
+  }
+
+  private stopKeepAlive(): void {
+    if (this.keepAliveTimer !== null) {
+      window.clearInterval(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (this.isReconnecting || !this.accessToken) return;
+    this.isReconnecting = true;
+    window.setTimeout(() => {
+      if (!this.accessToken) {
+        this.isReconnecting = false;
+        return;
+      }
+      this.connect()
+        .then(() => {
+          this.isReconnecting = false;
+        })
+        .catch(() => {
+          this.isReconnecting = false;
+        });
+    }, 1500);
   }
 
   private async translateAndDetect(

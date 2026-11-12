@@ -1082,7 +1082,7 @@ export function App() {
           <div className="mx-4 mt-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center justify-between">
             <span className="flex items-center gap-1.5 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Direct Tab / YouTube Stream Active (Pristine Digital Audio)
+              Direct TAB / Online Sermon Stream Active (Pristine Digital Audio)
             </span>
           </div>
         )}
@@ -1164,7 +1164,7 @@ export function App() {
 
         {/* SIMPLE 3-BUTTON THUMB BAR AT BOTTOM OF ANDROID PHONE */}
         <footer className="px-5 pt-2.5 pb-5 bg-slate-950/95 border-t border-slate-900 shrink-0">
-          {/* Quick Audio Source Selector: Physical Mic vs Tab / YouTube */}
+          {/* Quick Audio Source Selector: Physical Mic vs TAB / Online Sermon */}
           <div className="flex items-center justify-center mb-2">
             <div className="inline-flex bg-slate-900/90 border border-slate-800 rounded-full p-0.5 shadow-inner">
               <button
@@ -1202,7 +1202,7 @@ export function App() {
                 }`}
               >
                 <Tv className="w-3 h-3" />
-                Tab / YouTube
+                TAB / Online Sermon
               </button>
             </div>
           </div>

@@ -26,6 +26,9 @@ export class DeepgramLiveWebSocket {
   private accumulatedWords: string[] = [];
   private currentSpeakerNum = 0;
   private flushTimer: number | null = null;
+  private lastFlushedText = '';
+  private lastFlushedAt = 0;
+  private lastChunkText = '';
 
   constructor(
     apiKey: string,
@@ -94,6 +97,14 @@ export class DeepgramLiveWebSocket {
             const speechFinal = Boolean(data?.speech_final);
 
             if (transcript && transcript.length > 0 && isFinal) {
+              // Deduplicate consecutive identical raw chunks
+              const normalizedChunk = transcript.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+              const prevChunk = this.lastChunkText.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+              if (normalizedChunk && normalizedChunk === prevChunk) {
+                return;
+              }
+              this.lastChunkText = transcript;
+
               // Determine speaker
               if (alt.words && alt.words.length > 0 && typeof alt.words[0].speaker === 'number') {
                 const speaker = alt.words[0].speaker;
@@ -161,6 +172,17 @@ export class DeepgramLiveWebSocket {
     this.accumulatedWords = [];
 
     if (!fullOriginalSentence) return;
+
+    // Clean duplicate check: ignore if identical sentence was already flushed within 10 seconds
+    const cleanSentence = fullOriginalSentence.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+    const cleanLastFlushed = this.lastFlushedText.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+    const now = Date.now();
+    if (cleanSentence && cleanSentence === cleanLastFlushed && now - this.lastFlushedAt < 10000) {
+      return;
+    }
+
+    this.lastFlushedText = fullOriginalSentence;
+    this.lastFlushedAt = now;
 
     try {
       // Direct, word-for-word translation of the complete sentence

@@ -370,6 +370,18 @@ export function App() {
         latencyMs: params.latencyMs,
       };
 
+      // Global duplicate guard: prevent adding consecutive identical segments
+      const prevSegments = segmentsRef.current;
+      const lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
+      if (lastSegment) {
+        const normIncoming = params.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+        const normLast = lastSegment.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+        const timeDiff = Date.now() - lastSegment.timestamp;
+        if (normIncoming && normIncoming === normLast && timeDiff < 8000) {
+          return;
+        }
+      }
+
       setSegments((prev) => [...prev, newSegment]);
 
       // In stage simulation mode, only translate and speak Speaker 1.

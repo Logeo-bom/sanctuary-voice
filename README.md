@@ -93,9 +93,10 @@ To cover multimodal AI token and cloud streaming costs without complex recurring
 * **Monthly Believer Pack (360 Minutes · $5.99):** Covers four Sunday services plus weekly prayer/fellowship meetings.
 * **Visiting Congregation Pack (1,500 Minutes · $19.99):** Built for multi-day church conferences, guest preachers, revival meetings, and overseas mission trips.
 
-### 3. Self-Hosted & BYOK (Bring Your Own Key) Support
-* **Zero Credit Consumption:** Churches, AV media teams, or individual users who provide their own Google Gemini API key or deploy on their own Vercel/Cloud backend bypass pre-paid wallet deductions and utilize their direct cloud quotas.
-* **No Middleman Lock-in:** Fully self-hostable without per-attendee licensing fees.
+### 3. Backend-Managed API Security
+* **Zero Client-Side Keys Required:** End-users and church attendees do not need to obtain, manage, or input any API keys in the app.
+* **Secure Cloud Proxy:** All speech recognition, multimodal translation, and neural TTS requests route through secure backend serverless endpoints (`/api/gemini-translate`, `/api/deepgram-transcribe`, etc.) configured via environment variables (`GEMINI_API_KEY`, `DEEPGRAM_API_KEY`, etc.).
+* **Zero Configuration for Visitors:** Visitors simply open the web app or Android APK and start listening immediately without configuration barriers.
 
 ---
 

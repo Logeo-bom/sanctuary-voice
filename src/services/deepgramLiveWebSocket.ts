@@ -1,4 +1,5 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
+import { getKeywordsForLanguage } from '../constants/theologyKeywords';
 
 export interface DeepgramLiveSegment {
   speakerId: string;
@@ -12,6 +13,7 @@ export interface DeepgramLiveSegment {
 }
 
 export type OnTranscriptCallback = (segment: DeepgramLiveSegment) => void;
+export type OnInterimCallback = (interimText: string) => void;
 export type OnErrorCallback = (err: string) => void;
 
 export class DeepgramLiveWebSocket {
@@ -20,6 +22,7 @@ export class DeepgramLiveWebSocket {
   private sourceLang: string;
   private targetLang: string;
   private onSegment: OnTranscriptCallback;
+  private onInterim?: OnInterimCallback;
   private onError: OnErrorCallback;
 
   // Utterance accumulation state to ensure word-for-word complete sentences
@@ -38,13 +41,15 @@ export class DeepgramLiveWebSocket {
     sourceLang: string,
     targetLang: string,
     onSegment: OnTranscriptCallback,
-    onError: OnErrorCallback
+    onError: OnErrorCallback,
+    onInterim?: OnInterimCallback
   ) {
     this.apiKey = apiKey.trim();
     this.sourceLang = sourceLang;
     this.targetLang = targetLang;
     this.onSegment = onSegment;
     this.onError = onError;
+    this.onInterim = onInterim;
   }
 
   public async connect(): Promise<void> {
@@ -88,9 +93,13 @@ export class DeepgramLiveWebSocket {
         const modelName = isAuto ? 'nova-3' : 'nova-2';
         const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
 
+        // Deepgram biblical keyword boosting parameters
+        const boostedWords = getKeywordsForLanguage(this.sourceLang);
+        const keywordParams = boostedWords.map((w) => `&keywords=${encodeURIComponent(w)}:2`).join('');
+
         // Deepgram live WebSocket URL
         // Endpointing=300ms triggers speech_final on natural speaker pauses.
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}`;
+        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}${keywordParams}`;
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
@@ -109,7 +118,12 @@ export class DeepgramLiveWebSocket {
             const isFinal = Boolean(data?.is_final);
             const speechFinal = Boolean(data?.speech_final);
 
+            if (transcript && transcript.length > 0 && !isFinal) {
+              this.onInterim?.(transcript);
+            }
+
             if (transcript && transcript.length > 0 && isFinal) {
+              this.onInterim?.(''); // Clear interim when finalized
               // Deduplicate consecutive identical raw chunks
               const normalizedChunk = transcript.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
               const prevChunk = this.lastChunkText.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
@@ -131,15 +145,15 @@ export class DeepgramLiveWebSocket {
               this.accumulatedWords.push(transcript);
 
               const currentAccumulated = this.accumulatedWords.join(' ').trim();
-              // Check if sentence naturally ended with punctuation (period, question mark, exclamation, or Korean verbal ending 다/요)
-              const hasTerminalPunctuation = /[.?!]$/.test(transcript) || /[다요][.?!]?$/.test(transcript);
+              // Check if sentence naturally ended with terminal punctuation or Korean verbal ending
+              const hasTerminalPunctuation = /[.?!]$/.test(transcript) || /[다요죠죠][.?!]?$/.test(transcript);
               const totalWordsCount = currentAccumulated.split(/\s+/).length;
 
-              // If speaker reached natural sentence boundary OR speech_final OR reached a substantial thought (15+ words), flush
-              if (speechFinal || (hasTerminalPunctuation && totalWordsCount >= 4) || totalWordsCount >= 18) {
+              // Fast clause flush: if terminal punctuation OR speech_final OR reached a substantial thought (12+ words), flush
+              if (speechFinal || (hasTerminalPunctuation && totalWordsCount >= 3) || totalWordsCount >= 14) {
                 await this.flushAccumulatedSentence();
               } else {
-                // Safety timer: flush after 2.8 seconds of silence to prevent premature sentence cutting
+                // Safety timer: flush after 1.8 seconds of silence to prevent lag and ensure responsive continuous streaming
                 this.resetSafetyFlushTimer();
               }
             }
@@ -173,7 +187,7 @@ export class DeepgramLiveWebSocket {
     }
     this.flushTimer = window.setTimeout(() => {
       void this.flushAccumulatedSentence();
-    }, 2800);
+    }, 1800);
   }
 
   private async flushAccumulatedSentence(): Promise<void> {

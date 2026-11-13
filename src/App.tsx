@@ -158,6 +158,7 @@ export function App() {
 
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
+  const [liveInterimText, setLiveInterimText] = useState<string>('');
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
@@ -628,6 +629,7 @@ export function App() {
       fallbackEngineRef.current?.stop();
       fallbackEngineRef.current = null;
       speechEngineRef.current?.stopAll();
+      setLiveInterimText('');
       setIsListening(false);
       return;
     }
@@ -656,6 +658,9 @@ export function App() {
             },
             (err) => {
               setErrorNotice(err);
+            },
+            (interim) => {
+              setLiveInterimText(interim);
             }
           );
 
@@ -875,6 +880,11 @@ export function App() {
                       )}
                     </span>
                   ))}
+                  {isLatestTurn && isListening && liveInterimText && (
+                    <span className="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 font-normal italic animate-pulse">
+                      {liveInterimText}...
+                    </span>
+                  )}
                   {isLatestTurn && isListening && (
                     <span className="inline-flex items-center ml-1">
                       <span className="w-1.5 h-3.5 bg-sky-400 animate-pulse inline-block align-middle rounded-sm" />

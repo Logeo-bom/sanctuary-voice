@@ -80,14 +80,22 @@ The app is built inside a clean, thumb-friendly Android phone interface:
 
 ---
 
-## 💰 Business Model: Pre-Paid Token Financing
+## 💰 Business Model: Pre-Paid Token Financing & AI Credit Handling
 
-To cover AI token and infrastructure costs without complex subscriptions:
-* **Pre-Paid Sanctuary Pass Wallet:** Integrated directly into the app settings, tracking minutes used in real time against AI token consumption.
-* **Pricing Tiers:**
-  * **Single Service Pass:** 90 Minutes ($1.99) — Covers one complete church service.
-  * **Monthly Believer Pack:** 360 Minutes ($5.99) — Covers 4 Sunday services plus fellowship.
-  * **Visiting Congregation Pack:** 1,500 Minutes ($19.99) — Designed for conferences, guest preachers, and mission trips.
+To cover multimodal AI token and cloud streaming costs without complex recurring subscriptions or ad monetization:
+
+### 1. Pre-Paid Sanctuary Pass Wallet
+* **Real-Time Minute Metering:** Translates actual sermon audio time into underlying AI token consumption (Deepgram WebSocket audio frames, Gemini Multimodal audio input tokens, DeepL character counts, and Edge TTS speech frames).
+* **Live In-App Balance:** The Settings modal (`⚙️`) displays remaining active translation minutes with real-time deduction as you listen during a service.
+
+### 2. Pricing Tiers & Credit Packs
+* **Single Service Pass (90 Minutes · $1.99):** Covers one full Sunday worship service and sermon.
+* **Monthly Believer Pack (360 Minutes · $5.99):** Covers four Sunday services plus weekly prayer/fellowship meetings.
+* **Visiting Congregation Pack (1,500 Minutes · $19.99):** Built for multi-day church conferences, guest preachers, revival meetings, and overseas mission trips.
+
+### 3. Self-Hosted & BYOK (Bring Your Own Key) Support
+* **Zero Credit Consumption:** Churches, AV media teams, or individual users who provide their own Google Gemini API key or deploy on their own Vercel/Cloud backend bypass pre-paid wallet deductions and utilize their direct cloud quotas.
+* **No Middleman Lock-in:** Fully self-hostable without per-attendee licensing fees.
 
 ---
 

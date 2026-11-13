@@ -498,8 +498,11 @@ export function App() {
         if (deepgramFailed) {
           try {
             const recentContext = segmentsRef.current
-              .slice(-3)
-              .map((s) => `${s.speakerLabel}: ${s.originalText}`);
+              .slice(-6)
+              .map(
+                (s) =>
+                  `[${s.speakerLabel || 'Speaker'}]: "${s.originalText}" -> "${s.translatedText}"`
+              );
 
             const geminiResult = await translateChurchStageAudioChunk({
               audioBlob,
@@ -560,8 +563,11 @@ export function App() {
         setIsProcessingChunk(true);
         try {
           const recentContext = segmentsRef.current
-            .slice(-3)
-            .map((s) => `${s.speakerLabel}: ${s.originalText}`);
+            .slice(-6)
+            .map(
+              (s) =>
+                `[${s.speakerLabel || 'Speaker'}]: "${s.originalText}" -> "${s.translatedText}"`
+            );
 
           const result = await translateChurchStageAudioChunk({
             audioBlob,

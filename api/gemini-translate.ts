@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const recentContextBlock =
       Array.isArray(recentContext) && recentContext.length > 0
-        ? `Recent sermon context for continuity:\n${recentContext.slice(-3).join('\n')}`
+        ? `Recent sermon context for continuity:\n${recentContext.slice(-6).join('\n')}`
         : 'Start of live church stage stream.';
 
     const systemInstruction = `You are a specialized real-time Church Sanctuary Simultaneous Interpreter AI.
@@ -89,13 +89,17 @@ CRITICAL CHALLENGES YOU MUST SOLVE:
 2. DIALECTS & ACCENTS:
    - Accurately recognize strong regional dialects (e.g. Swiss French, Korean dialects, Southern US English, Portuguese).
    - Identify the specific dialect in "detectedDialect".
-3. THEOLOGICAL & BIBLICAL ACCURACY:
-   - Translate idioms, scripture references, and church terminology naturally and accurately into ${targetLang} (ISO: ${targetLanguageCode}).
-4. NOISE & SYNTH IMMUNITY:
+3. FULL-SENTENCE SYNTHESIS & CONTINUOUS NARRATIVE FLOW:
+   - Preachers frequently speak in long, multi-clause thoughts and oratorical structures (especially in languages like Korean, Japanese, German, or Portuguese where key verbs or conjunctions arrive at the end of clauses).
+   - Synthesize longer, complete, and grammatically fluent sentences in ${targetLang} rather than short fragmented or choppy word-for-word snippets.
+   - Use the provided recent sermon context to resolve dangling clauses and maintain continuous narrative flow. Connect dependent clauses smoothly so the listener hears natural, coherent theological sentences (similar to professional church broadcast subtitles) while preserving the full original meaning without omitting substance.
+4. THEOLOGICAL & BIBLICAL ACCURACY:
+   - Translate idioms, scripture references, biblical concepts, and church terminology naturally and accurately into ${targetLang} (ISO: ${targetLanguageCode}).
+5. NOISE & SYNTH IMMUNITY:
    - Ignore background worship synth pads, organ chords, coughs, or room reverb. If only music, silence, or unintelligible room noise is present, return an empty "utterances": [] array. Never hallucinate text on silence.
 ${
   preferredLangName
-    ? `5. USER SOURCE PREFERENCE HINT: The user prefers hearing from ${preferredLangName} (${preferredSourceLanguageCode}), though you should still tag every detected speaker's true sourceLanguageCode accurately so the UI can filter or split them.`
+    ? `6. USER SOURCE PREFERENCE HINT: The user prefers hearing from ${preferredLangName} (${preferredSourceLanguageCode}), though you should still tag every detected speaker's true sourceLanguageCode accurately so the UI can filter or split them.`
     : ''
 }`;
 
@@ -131,7 +135,7 @@ ${
                     },
                   },
                   {
-                    text: `${recentContextBlock}\n\nTranscribe and translate any spoken speech in this audio chunk into ${targetLang}. Return strict JSON matching the schema.`,
+                    text: `${recentContextBlock}\n\nTask: Transcribe and translate any spoken speech in this audio chunk into natural, full-sentence ${targetLang}. Synthesize complete grammatical thoughts rather than choppy fragments, seamlessly continuing from the recent context. Return strict JSON matching the schema.`,
                   },
                 ],
               },

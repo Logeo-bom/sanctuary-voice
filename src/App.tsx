@@ -17,6 +17,9 @@ import {
   AlignLeft,
   LayoutGrid,
   Radio,
+  Maximize2,
+  Minimize2,
+  Activity,
 } from 'lucide-react';
 import type {
   AudioMeterSnapshot,
@@ -159,6 +162,7 @@ export function App() {
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
   const [liveInterimText, setLiveInterimText] = useState<string>('');
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
@@ -891,6 +895,30 @@ export function App() {
                     </span>
                   )}
                 </div>
+
+                {/* Real-time Acoustic Waveform Activity Indicator */}
+                {isLatestTurn && isListening && (
+                  <div className="pt-2 mt-1 border-t border-slate-800/60 flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-sky-400 animate-pulse shrink-0" />
+                    <div className="flex items-center gap-0.5 h-3">
+                      {[0.3, 0.7, 0.4, 0.9, 0.6, 0.2, 0.8, 0.5, 0.3].map((h, i) => (
+                        <span
+                          key={i}
+                          className="w-1 bg-sky-400/80 rounded-full transition-all duration-150"
+                          style={{
+                            height: meter.isVoiceDetected
+                              ? `${Math.max(3, Math.min(12, Math.round(h * 12 * (meter.normalizedLevel + 0.5))))}px`
+                              : '3px',
+                            opacity: meter.isVoiceDetected ? 1 : 0.3,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {meter.isVoiceDetected ? 'Stage Audio Active' : 'Waiting for Speech'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -973,9 +1001,25 @@ export function App() {
             <span className="font-bold text-sm text-white tracking-tight">
               SanctuaryVoice
             </span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-950/80 border border-sky-800/60 text-sky-300 font-medium">
+              Sanctuary Net
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsFocusMode((prev) => !prev)}
+              className={`p-1.5 rounded-full transition cursor-pointer ${
+                isFocusMode
+                  ? 'bg-sky-500 text-slate-950 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 hover:text-white'
+              }`}
+              title={isFocusMode ? 'Show controls' : 'Pew Focus Mode (Full Screen Subtitles)'}
+            >
+              {isFocusMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+
             {segments.length > 0 && (
               <button
                 type="button"
@@ -1002,138 +1046,158 @@ export function App() {
         </header>
 
         {/* Source (Speaker 1) & Target ("Translate to") Language Selectors */}
-        <div className="px-4 py-2.5 bg-slate-900/60 border-b border-slate-900 grid grid-cols-2 gap-2 shrink-0">
-          <div>
-            <label className="block text-[10px] text-slate-400 font-medium mb-1">
-              Speaker 1 Language:
-            </label>
-            <select
-              value={speaker1SourceLang}
-              onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
-            >
-              <option value="auto">✨ Auto-Detect</option>
-              {SUPPORTED_LANGUAGES.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.flag} {lang.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        {!isFocusMode && (
+          <div className="px-4 py-2.5 bg-slate-900/60 border-b border-slate-900 grid grid-cols-2 gap-2 shrink-0 animate-in fade-in duration-200">
+            <div>
+              <label className="block text-[10px] text-slate-400 font-medium mb-1">
+                Speaker 1 Language:
+              </label>
+              <select
+                value={speaker1SourceLang}
+                onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
+              >
+                <option value="auto">✨ Auto-Detect</option>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.flag} {lang.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-[10px] text-sky-400 font-semibold mb-1">
-              Translate To (My Earphones):
-            </label>
-            <select
-              value={targetLangCode}
-              onChange={(e) => handleChangeTargetLanguage(e.target.value)}
-              className="w-full bg-slate-900 border border-sky-500/40 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
-            >
-              {SUPPORTED_LANGUAGES.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.flag} {lang.name}
-                </option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-[10px] text-sky-400 font-semibold mb-1">
+                Translate To (My Earphones):
+              </label>
+              <select
+                value={targetLangCode}
+                onChange={(e) => handleChangeTargetLanguage(e.target.value)}
+                className="w-full bg-slate-900 border border-sky-500/40 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
+              >
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.flag} {lang.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Always-Visible Stage Voice Selection Bar */}
-        <div className="px-3.5 py-2 bg-slate-950 border-b border-slate-900 flex items-center justify-between gap-1.5 shrink-0">
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            {/* Auto-Follow Pill */}
-            <button
-              type="button"
-              onClick={() => {
-                setVoiceViewMode('auto');
-                speechEngineRef.current?.stopAll();
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                voiceViewMode === 'auto'
-                  ? 'bg-gradient-to-r from-sky-400 to-indigo-500 text-slate-950 shadow-sm'
-                  : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-              }`}
-              title="Automatically switches and displays whichever stage speaker is speaking"
-            >
-              <Sparkles className="w-3 h-3" />
-              Auto-Follow
-              {voiceViewMode === 'auto' && <Check className="w-3 h-3" />}
-            </button>
+        {!isFocusMode && (
+          <div className="px-3.5 py-2 bg-slate-950 border-b border-slate-900 flex items-center justify-between gap-1.5 shrink-0 animate-in fade-in duration-200">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+              {/* Auto-Follow Pill */}
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceViewMode('auto');
+                  speechEngineRef.current?.stopAll();
+                }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
+                  voiceViewMode === 'auto'
+                    ? 'bg-gradient-to-r from-sky-400 to-indigo-500 text-slate-950 shadow-sm'
+                    : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
+                }`}
+                title="Automatically switches and displays whichever stage speaker is speaking"
+              >
+                <Sparkles className="w-3 h-3" />
+                Auto-Follow
+                {voiceViewMode === 'auto' && <Check className="w-3 h-3" />}
+              </button>
 
-            {/* All Voices Pill */}
-            <button
-              type="button"
-              onClick={() => {
-                setVoiceViewMode('all');
-                speechEngineRef.current?.stopAll();
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition cursor-pointer ${
-                voiceViewMode === 'all'
-                  ? 'bg-sky-500 text-slate-950'
-                  : 'bg-slate-900 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All Voices
-            </button>
+              {/* All Voices Pill */}
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceViewMode('all');
+                  speechEngineRef.current?.stopAll();
+                }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition cursor-pointer ${
+                  voiceViewMode === 'all'
+                    ? 'bg-sky-500 text-slate-950'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                All Voices
+              </button>
 
-            {/* Dynamic Speaker Pills */}
-            {speakers.map((spk) => {
-              const isSelected = voiceViewMode === spk.id;
-              const isActiveSpeaking = activeSpeakerId === spk.id;
-              const displayCode =
-                spk.id === 'speaker_1'
-                  ? speaker1SourceLang === 'auto'
-                    ? 'Auto'
-                    : speaker1SourceLang.toUpperCase()
-                  : spk.id === 'speaker_2'
-                  ? targetLangCode.toUpperCase()
-                  : (spk.detectedLanguageCode || '').toUpperCase();
+              {/* Dynamic Speaker Pills */}
+              {speakers.map((spk) => {
+                const isSelected = voiceViewMode === spk.id;
+                const isActiveSpeaking = activeSpeakerId === spk.id;
+                const displayCode =
+                  spk.id === 'speaker_1'
+                    ? speaker1SourceLang === 'auto'
+                      ? 'Auto'
+                      : speaker1SourceLang.toUpperCase()
+                    : spk.id === 'speaker_2'
+                    ? targetLangCode.toUpperCase()
+                    : (spk.detectedLanguageCode || '').toUpperCase();
 
-              return (
-                <button
-                  key={spk.id}
-                  type="button"
-                  onClick={() => {
-                    setVoiceViewMode(isSelected ? 'all' : spk.id);
-                    speechEngineRef.current?.stopAll();
-                  }}
-                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                    isSelected
-                      ? 'bg-sky-500 text-slate-950'
-                      : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isActiveSpeaking && isListening ? 'animate-pulse ring-2 ring-sky-400' : ''
+                return (
+                  <button
+                    key={spk.id}
+                    type="button"
+                    onClick={() => {
+                      setVoiceViewMode(isSelected ? 'all' : spk.id);
+                      speechEngineRef.current?.stopAll();
+                    }}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-sky-500 text-slate-950'
+                        : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
                     }`}
-                    style={{ backgroundColor: spk.accentColor }}
-                  />
-                  {spk.label} ({displayCode})
-                  {isSelected && <Check className="w-3 h-3" />}
-                </button>
-              );
-            })}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        isActiveSpeaking && isListening ? 'animate-pulse ring-2 ring-sky-400' : ''
+                      }`}
+                      style={{ backgroundColor: spk.accentColor }}
+                    />
+                    {spk.label} ({displayCode})
+                    {isSelected && <Check className="w-3 h-3" />}
+                  </button>
+                );
+              })}
 
-            {/* 2 Windows Split Pill */}
+              {/* 2 Windows Split Pill */}
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceViewMode(voiceViewMode === 'split' ? 'all' : 'split');
+                  speechEngineRef.current?.stopAll();
+                }}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
+                  voiceViewMode === 'split'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <Rows2 className="w-3 h-3" />
+                2 Windows
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Focus Mode Sticky Banner */}
+        {isFocusMode && (
+          <div className="px-3.5 py-1 bg-slate-900/90 border-b border-sky-500/30 flex items-center justify-between text-[11px] text-slate-300 shrink-0">
+            <span className="flex items-center gap-1.5 text-sky-300 font-semibold text-[10px]">
+              <Sparkles className="w-3 h-3" /> Focus View: {speaker1SourceLang.toUpperCase()} → {targetLangCode.toUpperCase()}
+            </span>
             <button
               type="button"
-              onClick={() => {
-                setVoiceViewMode(voiceViewMode === 'split' ? 'all' : 'split');
-                speechEngineRef.current?.stopAll();
-              }}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                voiceViewMode === 'split'
-                  ? 'bg-amber-400 text-slate-950'
-                  : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-              }`}
+              onClick={() => setIsFocusMode(false)}
+              className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
             >
-              <Rows2 className="w-3 h-3" />
-              2 Windows
+              Show Controls
             </button>
           </div>
-        </div>
+        )}
 
         {/* Reading Controls Toolbar: Continuous vs Cards, Original Language Toggle, Font Size */}
         <div className="px-3.5 py-1.5 bg-slate-950/80 border-b border-slate-900/80 flex items-center justify-between text-[11px] text-slate-400 shrink-0">

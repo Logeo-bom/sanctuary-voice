@@ -1,6 +1,7 @@
 import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/translator';
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
+export type AudioStreamingSliceCallback = (sliceBlob: Blob) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
 export type StreamEndedCallback = () => void;
 
@@ -17,23 +18,28 @@ export class ChurchAudioEngine {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
   private mediaRecorder: MediaRecorder | null = null;
+  private accumulatedSlices: Blob[] = [];
+  private segmentStartTime = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
   private onStreamEnded?: StreamEndedCallback;
+  private onStreamingSlice?: AudioStreamingSliceCallback;
 
   constructor(
     config: AudioProcessingConfig,
     onAudioChunk: AudioChunkCallback,
     onMeterUpdate: MeterUpdateCallback,
-    onStreamEnded?: StreamEndedCallback
+    onStreamEnded?: StreamEndedCallback,
+    onStreamingSlice?: AudioStreamingSliceCallback
   ) {
     this.config = { ...config };
     this.onAudioChunk = onAudioChunk;
     this.onMeterUpdate = onMeterUpdate;
     this.onStreamEnded = onStreamEnded;
+    this.onStreamingSlice = onStreamingSlice;
   }
 
   public static async listAudioInputDevices(): Promise<MediaDeviceInfo[]> {
@@ -237,6 +243,7 @@ export class ChurchAudioEngine {
 
   public stop(): void {
     this.isRunning = false;
+    this.accumulatedSlices = [];
 
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);
@@ -287,10 +294,43 @@ export class ChurchAudioEngine {
         ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
         : new MediaRecorder(this.destinationNode.stream);
 
+      this.accumulatedSlices = [];
+      this.segmentStartTime = performance.now();
+
       recorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0 && this.isRunning) {
+        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
+
+        // 1. Immediately send live 250ms micro-slices to WebSocket (Deepgram) if attached
+        if (this.onStreamingSlice) {
+          this.onStreamingSlice(ev.data);
+        }
+
+        // 2. Accumulate slices for REST / Gemini full-segment translation
+        this.accumulatedSlices.push(ev.data);
+        const elapsed = performance.now() - this.segmentStartTime;
+        const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
+
+        if (elapsed >= targetDurationMs) {
+          if (recorder.state === 'recording') {
+            try {
+              recorder.stop();
+            } catch {}
+          }
+        }
+      };
+
+      recorder.onstop = () => {
+        if (this.accumulatedSlices.length > 0) {
           const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-          this.onAudioChunk(ev.data, actualMime, 250);
+          const fullBlob = new Blob(this.accumulatedSlices, { type: actualMime });
+          const duration = Math.round(performance.now() - this.segmentStartTime);
+          this.accumulatedSlices = [];
+          this.onAudioChunk(fullBlob, actualMime, duration);
+        }
+
+        // Seamlessly start the next recording segment with a fresh WebM container header
+        if (this.isRunning) {
+          this.startSegmentedRecorder();
         }
       };
 

@@ -670,11 +670,8 @@ export function App() {
       const engine = new ChurchAudioEngine(
         audioConfig,
         (blob, mime, dur) => {
-          if (deepgramWsRef.current) {
-            deepgramWsRef.current.sendAudio(blob);
-          } else {
-            void handleAudioChunkReady(blob, mime, dur);
-          }
+          // Complete 3.5s standalone audio chunk with full container headers for Gemini / REST
+          void handleAudioChunkReady(blob, mime, dur);
         },
         (snapshot) => setMeter(snapshot),
         () => {
@@ -682,6 +679,12 @@ export function App() {
           audioEngineRef.current = null;
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
+        },
+        (sliceBlob) => {
+          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
+          if (deepgramWsRef.current) {
+            deepgramWsRef.current.sendAudio(sliceBlob);
+          }
         }
       );
       await engine.start(audioConfig.audioSource || 'mic');

@@ -104,123 +104,138 @@ ${
 }`;
 
     const cleanMime = mimeType.split(';')[0] || 'audio/webm';
-    const modelsToTry = [modelName, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-1.5-flash'].filter(Boolean) as string[];
+    
+    // Valid standard Gemini models in Google Generative Language API
+    const rawModelList = [
+      modelName && modelName !== 'gemini-2.5-flash' ? modelName : null,
+      'gemini-1.5-flash',
+      'gemini-1.5-flash-latest',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash-8b',
+      'gemini-1.5-pro',
+      'gemini-2.0-flash-exp',
+    ].filter(Boolean) as string[];
+
+    const modelsToTry = Array.from(new Set(rawModelList));
 
     let lastError = '';
     const startTime = Date.now();
 
     for (const model of modelsToTry) {
-      try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-          model
-        )}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+      for (const apiVersion of ['v1beta', 'v1']) {
+        try {
+          const endpoint = `https://generativelanguage.googleapis.com/${apiVersion}/models/${encodeURIComponent(
+            model
+          )}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
 
-        const geminiRes = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: systemInstruction }],
+          const geminiRes = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
             },
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: cleanMime,
-                      data: audioBase64,
-                    },
-                  },
-                  {
-                    text: `${recentContextBlock}\n\nTask: Transcribe and translate any spoken speech in this audio chunk into natural, full-sentence ${targetLang}. Synthesize complete grammatical thoughts rather than choppy fragments, seamlessly continuing from the recent context. Return strict JSON matching the schema.`,
-                  },
-                ],
+            body: JSON.stringify({
+              systemInstruction: {
+                parts: [{ text: systemInstruction }],
               },
-            ],
-            generationConfig: {
-              temperature: 0.15,
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: 'OBJECT',
-                properties: {
-                  utterances: {
-                    type: 'ARRAY',
-                    items: {
-                      type: 'OBJECT',
-                      properties: {
-                        speakerId: { type: 'STRING' },
-                        speakerLabel: { type: 'STRING' },
-                        roleHint: {
-                          type: 'STRING',
-                          enum: ['main-speaker', 'stage-interpreter', 'worship-leader', 'unknown'],
-                        },
-                        sourceLanguageCode: { type: 'STRING' },
-                        sourceLanguageName: { type: 'STRING' },
-                        detectedDialect: { type: 'STRING' },
-                        originalText: { type: 'STRING' },
-                        translatedText: { type: 'STRING' },
-                        backgroundNoiseNote: { type: 'STRING' },
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: cleanMime,
+                        data: audioBase64,
                       },
-                      required: [
-                        'speakerId',
-                        'speakerLabel',
-                        'roleHint',
-                        'sourceLanguageCode',
-                        'sourceLanguageName',
-                        'detectedDialect',
-                        'originalText',
-                        'translatedText',
-                      ],
+                    },
+                    {
+                      text: `${recentContextBlock}\n\nTask: Transcribe and translate any spoken speech in this audio chunk into natural, full-sentence ${targetLang}. Synthesize complete grammatical thoughts rather than choppy fragments, seamlessly continuing from the recent context. Return strict JSON matching the schema.`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.15,
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: 'OBJECT',
+                  properties: {
+                    utterances: {
+                      type: 'ARRAY',
+                      items: {
+                        type: 'OBJECT',
+                        properties: {
+                          speakerId: { type: 'STRING' },
+                          speakerLabel: { type: 'STRING' },
+                          roleHint: {
+                            type: 'STRING',
+                            enum: ['main-speaker', 'stage-interpreter', 'worship-leader', 'unknown'],
+                          },
+                          sourceLanguageCode: { type: 'STRING' },
+                          sourceLanguageName: { type: 'STRING' },
+                          detectedDialect: { type: 'STRING' },
+                          originalText: { type: 'STRING' },
+                          translatedText: { type: 'STRING' },
+                          backgroundNoiseNote: { type: 'STRING' },
+                        },
+                        required: [
+                          'speakerId',
+                          'speakerLabel',
+                          'roleHint',
+                          'sourceLanguageCode',
+                          'sourceLanguageName',
+                          'detectedDialect',
+                          'originalText',
+                          'translatedText',
+                        ],
+                      },
                     },
                   },
+                  required: ['utterances'],
                 },
-                required: ['utterances'],
               },
-            },
-          }),
-        });
+            }),
+          });
 
-        if (!geminiRes.ok) {
-          const errText = await geminiRes.text();
-          lastError = `Gemini upstream error (${model}): ${errText.slice(0, 200)}`;
-          continue;
+          if (!geminiRes.ok) {
+            const errText = await geminiRes.text();
+            lastError = `Gemini upstream error (${model}/${apiVersion}): ${errText.slice(0, 200)}`;
+            continue;
+          }
+
+          const data = await geminiRes.json();
+          const rawJsonText =
+            data?.candidates?.[0]?.content?.parts?.[0]?.text || '{"utterances":[]}';
+          const parsed = JSON.parse(rawJsonText) as {
+            utterances?: Array<{
+              speakerId: string;
+              speakerLabel: string;
+              roleHint: 'main-speaker' | 'stage-interpreter' | 'worship-leader' | 'unknown';
+              sourceLanguageCode: string;
+              sourceLanguageName: string;
+              detectedDialect: string;
+              originalText: string;
+              translatedText: string;
+              backgroundNoiseNote?: string;
+            }>;
+          };
+
+          const utterances = (parsed.utterances || []).filter(
+            (u) => u.originalText && u.originalText.trim().length > 1
+          );
+
+          const totalTokens =
+            data?.usageMetadata?.totalTokenCount ||
+            Math.round(audioBase64.length / 150) + utterances.length * 45;
+
+          return res.status(200).json({
+            utterances,
+            tokensEstimated: totalTokens,
+            latencyMs: Date.now() - startTime,
+            modelUsed: `${model} (${apiVersion})`,
+          });
+        } catch (tryErr) {
+          lastError = tryErr instanceof Error ? tryErr.message : String(tryErr);
         }
-
-        const data = await geminiRes.json();
-        const rawJsonText =
-          data?.candidates?.[0]?.content?.parts?.[0]?.text || '{"utterances":[]}';
-        const parsed = JSON.parse(rawJsonText) as {
-          utterances?: Array<{
-            speakerId: string;
-            speakerLabel: string;
-            roleHint: 'main-speaker' | 'stage-interpreter' | 'worship-leader' | 'unknown';
-            sourceLanguageCode: string;
-            sourceLanguageName: string;
-            detectedDialect: string;
-            originalText: string;
-            translatedText: string;
-            backgroundNoiseNote?: string;
-          }>;
-        };
-
-        const utterances = (parsed.utterances || []).filter(
-          (u) => u.originalText && u.originalText.trim().length > 1
-        );
-
-        const totalTokens =
-          data?.usageMetadata?.totalTokenCount ||
-          Math.round(audioBase64.length / 150) + utterances.length * 45;
-
-        return res.status(200).json({
-          utterances,
-          tokensEstimated: totalTokens,
-          latencyMs: Date.now() - startTime,
-        });
-      } catch (tryErr) {
-        lastError = tryErr instanceof Error ? tryErr.message : String(tryErr);
       }
     }
 

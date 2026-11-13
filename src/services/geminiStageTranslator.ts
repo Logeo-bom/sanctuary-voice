@@ -18,7 +18,7 @@ export interface GeminiTranslationResult {
   latencyMs: number;
 }
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash';
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -83,7 +83,16 @@ export async function translateChurchStageAudioChunk(params: {
     // If serverless returned an error and no client key is provided, throw the backend error
     if (!params.apiKey || !params.apiKey.trim()) {
       const errText = await serverlessRes.text();
-      throw new Error(`Gemini Serverless Error (${serverlessRes.status}): ${errText.slice(0, 180)}`);
+      let cleanMsg = errText;
+      try {
+        const parsedErr = JSON.parse(errText);
+        if (parsedErr.error) {
+          cleanMsg = typeof parsedErr.error === 'string' ? parsedErr.error : JSON.stringify(parsedErr.error);
+        }
+      } catch {
+        // use raw text
+      }
+      throw new Error(`Gemini Serverless (${serverlessRes.status}): ${cleanMsg.slice(0, 200)}`);
     }
   } catch (backendErr) {
     if (!params.apiKey || !params.apiKey.trim()) {

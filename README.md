@@ -36,7 +36,7 @@ When visiting any church worldwide, a visitor brings their mobile phone, puts ea
 ### 3. Regional Dialects & Theological Context
 * **The Problem:** Swiss French is distinct from Canadian French; regional accents and biblical terms ("grace", "anointing", "Romans 8") trip up generic translation models.
 * **Our Solution:**
-  * Context-aware translation models handle nuanced regional dialects and theological terminology smoothly across 12 supported languages.
+  * Context-aware translation models (Google Gemini & DeepL Neural Machine Translation) handle nuanced regional dialects, compound syntactic clauses, and theological terminology smoothly across 12+ supported languages.
 
 ### 4. Background Worship Synth Pads & Organ Noise
 * **The Problem:** Continuous ambient worship keys trick Voice Activity Detection (VAD) into thinking a sentence never ends.
@@ -60,7 +60,7 @@ The app is built inside a clean, thumb-friendly Android phone interface:
 | **Audio ON / Text Only** | Toggles speech-to-speech in your earphones. |
 | **Tap to Listen (Center Button)** | Starts/stops live phone microphone capture. |
 | **Distance Boost (+dB Button)** | Cycles between Front Row (`+2dB`), Pew Boost (`+12dB`), and Back Row Max (`+22dB`). |
-| **Settings (Gear Icon)** | Configure Gemini API keys, choose between Cloud Neural or Gemini Studio voices (`Aoede`, `Charon`, `Kore`, `Fenrir`), and view Pre-Paid minutes balance. |
+| **Settings (Gear Icon)** | Configure AI Translation Engines (Deepgram, Google Gemini, DeepL Neural Translation), choose between Cloud Neural or Gemini Studio voices (`Aoede`, `Charon`, `Kore`, `Fenrir`), and view Pre-Paid minutes balance. |
 
 ---
 
@@ -72,7 +72,9 @@ The app is built inside a clean, thumb-friendly Android phone interface:
 | **React 19 + TypeScript** | Frontend UI Framework | Real-time state management for continuous audio streams, speaker tabs, and decibel meters. | Strict type safety for translation segments and DSP states; predictable component transitions; high modularity. |
 | **Vite 8** | Bundler & Dev Server | Fast iteration and sub-second builds essential for a 1-day engineering timebox. | Sub-second Hot Module Replacement (HMR); `--host` network flag for instant physical Android Wi-Fi testing. |
 | **Web Audio API** | Acoustic DSP & Audio Graph | Native mobile audio APIs choke on distant loudspeakers due to cell-phone noise cancellation algorithms. | Hardware OS noise-gate bypass; custom `+2dB` to `+22dB` pre-amp gain; `90Hz` rumble filter; `280Hz` synth ducking filter. |
-| **Google Gemini 2.5 Flash** | Multimodal Audio Translation | Replaces slow 3-step chains (STT $\rightarrow$ Translate $\rightarrow$ TTS) with direct multimodal audio processing. | Native speaker diarization (separates Speaker 1 and Translator 2); dialect and theological terminology awareness; low latency. |
+| **Google Gemini 2.5 Flash** | Multimodal Audio Translation | Direct multimodal audio processing for sermon contextual synthesis. | Native speaker diarization (separates Speaker 1 and Translator 2); dialect and theological terminology awareness; continuous sentence resolution. |
+| **DeepL Neural Translation** | Precision Literary & Theological NMT | Benchmark gold standard for nuanced, high-fidelity biblical and linguistic translation. | Preserves complex grammatical clause structures across European, Asian, and Latin American languages without losing nuance. |
+| **Deepgram Nova-2** | Real-Time Speech Recognition | Low-latency live speech streaming (~300ms) with dual-speaker stage diarization. | Sub-second simultaneous transcription for real-time live earphone streaming in sanctuary seating. |
 | **Edge Neural TTS Proxy** | Speech-to-Speech Output | Standard browser/OS voices sound robotic when speaking non-English translations. | Authentic native accents across all 12 languages; pitch preservation (`preservesPitch = true`); zero user configuration. |
 | **Tailwind CSS v4** | UI Styling | Rapid, clean implementation of an Android mockup with zero runtime CSS overhead. | Thumb-first ergonomics; minimal battery consumption on mobile devices; crisp dark-mode sanctuary styling. |
 

@@ -105,17 +105,55 @@ ${
 
     const cleanMime = mimeType.split(';')[0] || 'audio/webm';
     
-    // Google Generative Language API multimodal models with v1beta endpoint
-    const rawModelList = [
-      modelName && !modelName.includes('2.5') ? modelName : null,
-      'gemini-1.5-flash',
+    // Dynamically discover supported models for this specific API key if possible
+    let availableModels: string[] = [];
+    try {
+      const listModelsRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey.trim())}`
+      );
+      if (listModelsRes.ok) {
+        const listData = await listModelsRes.json();
+        if (Array.isArray(listData?.models)) {
+          availableModels = listData.models
+            .filter((m: { supportedGenerationMethods?: string[] }) =>
+              m.supportedGenerationMethods?.includes('generateContent')
+            )
+            .map((m: { name: string }) => m.name.replace(/^models\//, ''));
+        }
+      }
+    } catch {
+      // Fall through to fallback list
+    }
+
+    // Google Generative Language API multimodal models prioritized by real-time speed & stability
+    const prioritizedDefaults = [
+      modelName ? modelName.replace(/^models\//, '') : null,
       'gemini-2.0-flash',
-      'gemini-1.5-flash-latest',
+      'gemini-2.0-flash-exp',
       'gemini-1.5-flash-8b',
+      'gemini-1.5-flash',
+      'gemini-1.5-flash-latest',
       'gemini-1.5-pro',
+      'gemini-2.5-flash',
     ].filter(Boolean) as string[];
 
-    const modelsToTry = Array.from(new Set(rawModelList));
+    // If availableModels were fetched successfully, prioritize matches from availableModels
+    const modelsToTry: string[] = [];
+    if (availableModels.length > 0) {
+      // Put available models matching prioritized defaults first, then any other generateContent model
+      for (const pref of prioritizedDefaults) {
+        if (availableModels.includes(pref) && !modelsToTry.includes(pref)) {
+          modelsToTry.push(pref);
+        }
+      }
+      for (const av of availableModels) {
+        if (!modelsToTry.includes(av) && (av.includes('flash') || av.includes('pro') || av.includes('gemini'))) {
+          modelsToTry.push(av);
+        }
+      }
+    } else {
+      modelsToTry.push(...Array.from(new Set(prioritizedDefaults)));
+    }
 
     let lastError = '';
     const startTime = Date.now();

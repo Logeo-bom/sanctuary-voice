@@ -87,19 +87,34 @@ export class DeepgramLiveWebSocket {
 
     return new Promise((resolve, reject) => {
       try {
-        // If specific language is chosen (e.g. 'ko', 'pt', 'en'), pin directly to it.
-        // If Auto-Detect is chosen, use nova-3 with language=multi
+        // Deepgram live WebSocket configuration
+        // When Auto-Detect is chosen:
+        // Nova-3 supports multi-language real-time speech recognition (language=multi).
+        // IMPORTANT: Nova-3 requires 'keyterm=WORD' without ':weight' suffixes!
+        // Nova-2 requires 'keywords=WORD:weight'.
+        // If a specific language is chosen (e.g. 'ko', 'en', 'es'), use nova-2 or nova-3 based on language support.
         const isAuto = !this.sourceLang || this.sourceLang === 'auto';
-        const modelName = isAuto ? 'nova-3' : 'nova-2';
-        const langParam = isAuto ? '&language=multi' : `&language=${encodeURIComponent(this.sourceLang)}`;
-
-        // Deepgram biblical keyword boosting parameters
+        
+        let wsUrl: string;
         const boostedWords = getKeywordsForLanguage(this.sourceLang);
-        const keywordParams = boostedWords.map((w) => `&keywords=${encodeURIComponent(w)}:2`).join('');
 
-        // Deepgram live WebSocket URL
-        // Endpointing=300ms triggers speech_final on natural speaker pauses.
-        const wsUrl = `wss://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${langParam}${keywordParams}`;
+        if (isAuto) {
+          // Nova-3 multi-language auto-detection
+          // Use keyterm parameter (Nova-3 does not accept keywords with intensity weights)
+          const keytermParams = boostedWords
+            .slice(0, 20)
+            .map((w) => `&keyterm=${encodeURIComponent(w)}`)
+            .join('');
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${keytermParams}`;
+        } else {
+          // Specific language pinned (e.g. ko, en, es, pt, etc.)
+          // Nova-2 supports keywords with weight intensity (:2) across all languages
+          const keywordParams = boostedWords
+            .slice(0, 25)
+            .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
+            .join('');
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${keywordParams}`;
+        }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
@@ -162,12 +177,14 @@ export class DeepgramLiveWebSocket {
           }
         };
 
-        this.socket.onerror = () => {
-          this.onError('Deepgram WebSocket connection failed. Please check your API key.');
+        this.socket.onerror = (e) => {
+          console.error('[DeepgramLiveWebSocket] Socket error event:', e);
+          this.onError('Deepgram WebSocket connection failed. Please check your API key or connection.');
           reject(new Error('WebSocket connection error'));
         };
 
-        this.socket.onclose = () => {
+        this.socket.onclose = (event) => {
+          console.warn('[DeepgramLiveWebSocket] Socket closed:', event.code, event.reason);
           this.stopKeepAlive();
           void this.flushAccumulatedSentence();
           // Auto-reconnect if unexpectedly closed while still active

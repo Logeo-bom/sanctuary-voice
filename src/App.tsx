@@ -94,7 +94,7 @@ export function App() {
   // Voice filter: 'all' | 'auto' | 'split' | 'speaker_1' | 'speaker_2'
   const [voiceViewMode, setVoiceViewMode] = useState<string>('all');
   const [activeSpeakerId, setActiveSpeakerId] = useState<string>('speaker_1');
-  const [displayStyle, setDisplayStyle] = useState<'continuous' | 'cards'>('continuous');
+  const [displayStyle, setDisplayStyle] = useState<'continuous' | 'cards' | 'live'>('continuous');
   const [showOriginalText, setShowOriginalText] = useState<boolean>(true);
   const [fontSizeScale, setFontSizeScale] = useState<'normal' | 'large' | 'xl'>('normal');
 
@@ -986,6 +986,136 @@ export function App() {
     );
   };
 
+  const renderLiveView = (segs: TranslationSegment[]) => {
+    const targetSpeakerId = voiceViewMode === 'all' || voiceViewMode === 'auto' ? activeSpeakerId : voiceViewMode;
+    const activeSpk = speakers.find((s) => s.id === targetSpeakerId) || speakers[0];
+    const spkSegments = segs.filter((s) => s.speakerId === activeSpk?.id);
+    const recentSegments = spkSegments.slice(-4);
+    const latestSegment = recentSegments[recentSegments.length - 1];
+
+    const textSizeClass =
+      fontSizeScale === 'large'
+        ? 'text-2xl sm:text-3xl'
+        : fontSizeScale === 'xl'
+        ? 'text-3xl sm:text-4xl'
+        : 'text-xl sm:text-2xl';
+
+    const originalTextSizeClass =
+      fontSizeScale === 'large'
+        ? 'text-sm'
+        : fontSizeScale === 'xl'
+        ? 'text-base'
+        : 'text-xs';
+
+    return (
+      <div className="h-full flex flex-col justify-between py-2 space-y-4">
+        {/* Focused Active Speaker Card */}
+        <div className="flex-1 bg-gradient-to-b from-slate-900/95 to-slate-950 border border-sky-500/30 rounded-3xl p-5 flex flex-col justify-between shadow-2xl relative overflow-hidden">
+          {/* Top Status & Speaker Banner */}
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+            <div className="flex items-center gap-2">
+              <span
+                className="w-3 h-3 rounded-full animate-pulse shadow-sm"
+                style={{ backgroundColor: activeSpk?.accentColor || '#38bdf8' }}
+              />
+              <span className="text-xs font-bold text-white tracking-wide">
+                {activeSpk?.label || 'Speaker 1'} ({activeSpk?.detectedLanguageCode.toUpperCase()})
+              </span>
+              <span className="text-[10px] text-sky-300 font-semibold bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                Live Teleprompter
+              </span>
+            </div>
+
+            {latestSegment && (
+              <button
+                type="button"
+                onClick={() =>
+                  speechEngineRef.current?.speakTranslation(
+                    latestSegment.translatedText,
+                    latestSegment.targetLanguageCode,
+                    true,
+                    apiKeyRef.current
+                  )
+                }
+                className="p-1.5 rounded-full bg-slate-800/80 text-slate-300 hover:text-sky-400 transition cursor-pointer"
+                title="Speak in earphones"
+              >
+                <Volume2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Teleprompter Big Text Area */}
+          <div className="my-auto py-4 space-y-3">
+            {showOriginalText && latestSegment?.originalText && (
+              <p className={`text-slate-400 italic ${originalTextSizeClass} leading-relaxed`}>
+                “{latestSegment.originalText}”
+              </p>
+            )}
+
+            <div className={`${textSizeClass} font-bold text-white leading-tight tracking-tight`}>
+              {recentSegments.length > 0 ? (
+                <>
+                  {recentSegments.slice(0, -1).map((s) => (
+                    <span key={s.id} className="text-slate-400/90 font-normal mr-2">
+                      {s.translatedText}
+                    </span>
+                  ))}
+                  <span className="text-white drop-shadow-sm">
+                    {latestSegment?.translatedText}
+                  </span>
+                </>
+              ) : (
+                <span className="text-slate-500 font-normal italic text-lg">
+                  Listening for stage speech...
+                </span>
+              )}
+
+              {/* Live interim preview */}
+              {isListening && liveInterimText && (
+                <span className="text-sky-300 font-normal italic ml-2 animate-pulse">
+                  {liveInterimText}...
+                </span>
+              )}
+              {isListening && (
+                <span className="inline-block w-2 h-5 bg-sky-400 animate-pulse ml-1.5 align-middle rounded-sm" />
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Live Acoustic Waveform Status */}
+          <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-sky-400 animate-pulse shrink-0" />
+              <div className="flex items-center gap-0.5 h-3">
+                {[0.4, 0.8, 0.5, 1.0, 0.7, 0.3, 0.9, 0.6, 0.4].map((h, i) => (
+                  <span
+                    key={i}
+                    className="w-1 bg-sky-400/80 rounded-full transition-all duration-150"
+                    style={{
+                      height: meter.isVoiceDetected
+                        ? `${Math.max(3, Math.min(12, Math.round(h * 12 * (meter.normalizedLevel + 0.5))))}px`
+                        : '3px',
+                      opacity: meter.isVoiceDetected ? 1 : 0.3,
+                    }}
+                  />
+                ))}
+              </div>
+              <span className="text-[11px] font-medium text-slate-300">
+                {meter.isVoiceDetected ? 'Vocal Wave Active' : 'Listening...'}
+              </span>
+            </div>
+
+            <span className="text-[10px] text-slate-500">
+              {recentSegments.length} turns spoken
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSegmentCard = (seg: TranslationSegment, compact = false) => {
     const spk = speakers.find((s) => s.id === seg.speakerId);
     return (
@@ -1276,6 +1406,19 @@ export function App() {
             </button>
             <button
               type="button"
+              onClick={() => setDisplayStyle('live')}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                displayStyle === 'live'
+                  ? 'bg-sky-500 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Focused Live Teleprompter for active speaker"
+            >
+              <Tv className="w-3 h-3" />
+              Live
+            </button>
+            <button
+              type="button"
               onClick={() => setDisplayStyle('cards')}
               className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
                 displayStyle === 'cards'
@@ -1452,6 +1595,8 @@ export function App() {
                         </div>
                       ) : displayStyle === 'continuous' ? (
                         renderContinuousStream(spkSegments, true)
+                      ) : displayStyle === 'live' ? (
+                        renderLiveView(spkSegments)
                       ) : (
                         spkSegments.map((seg) => renderSegmentCard(seg, true))
                       )}
@@ -1485,6 +1630,8 @@ export function App() {
 
               {displayStyle === 'continuous' ? (
                 renderContinuousStream(visibleSegments)
+              ) : displayStyle === 'live' ? (
+                renderLiveView(visibleSegments)
               ) : (
                 visibleSegments.map((seg) => renderSegmentCard(seg))
               )}

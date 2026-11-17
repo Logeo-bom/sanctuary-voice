@@ -8,8 +8,10 @@ import {
   Clock,
   Radio,
   Zap,
+  Sliders,
 } from 'lucide-react';
 import type {
+  AudioProcessingConfig,
   PrepaidAccountState,
   SpeechOutputConfig,
   VoiceEngineMode,
@@ -24,6 +26,8 @@ interface SettingsAndWalletModalProps {
   onSaveDeepgramKey: (key: string) => void;
   activeAiProvider: 'deepgram' | 'gemini';
   onSelectAiProvider: (provider: 'deepgram' | 'gemini') => void;
+  audioConfig: AudioProcessingConfig;
+  onChangeAudioConfig: (partial: Partial<AudioProcessingConfig>) => void;
   speechConfig: SpeechOutputConfig;
   onChangeSpeechConfig: (partial: Partial<SpeechOutputConfig>) => void;
   wallet: PrepaidAccountState;
@@ -35,6 +39,8 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   onClose,
   activeAiProvider,
   onSelectAiProvider,
+  audioConfig,
+  onChangeAudioConfig,
   speechConfig,
   onChangeSpeechConfig,
   wallet,
@@ -137,6 +143,34 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </div>
           <p className="text-[11px] text-slate-400">
             Zero setup required for congregation members. Live audio streams securely through your dedicated church backend.
+          </p>
+        </div>
+
+        {/* 3. Real-Time Vocal Isolation & Noise Suppression (Audacity AI Engine) */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <Sliders className="w-4 h-4 text-sky-400" />
+              Real-Time Vocal Isolation (Audacity AI Engine)
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                onChangeAudioConfig({
+                  neuralVoiceIsolationEnabled: audioConfig.neuralVoiceIsolationEnabled === false ? true : false,
+                })
+              }
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                audioConfig.neuralVoiceIsolationEnabled !== false
+                  ? 'bg-sky-500 text-slate-950 shadow-sm'
+                  : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {audioConfig.neuralVoiceIsolationEnabled !== false ? 'Isolation ON' : 'Standard Pass'}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-snug">
+            Applies continuous spectral subtraction to isolate the lead speaker's voice from choir singing, organ drones, worship synthesizer pads, and church HVAC rumble.
           </p>
         </div>
 

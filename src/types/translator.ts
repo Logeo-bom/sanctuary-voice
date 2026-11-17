@@ -48,6 +48,7 @@ export interface AudioProcessingConfig {
   silenceGateDb: number;
   selectedDeviceId: string;
   audioSource?: 'mic' | 'tab';
+  neuralVoiceIsolationEnabled?: boolean;
 }
 
 export type VoiceEngineMode = 'neural-cloud' | 'gemini-studio' | 'device';

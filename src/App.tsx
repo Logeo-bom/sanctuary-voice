@@ -109,6 +109,7 @@ export function App() {
     chunkDurationSec: 4,
     silenceGateDb: -48,
     selectedDeviceId: 'default',
+    neuralVoiceIsolationEnabled: true,
   });
 
   const [meter, setMeter] = useState<AudioMeterSnapshot>({
@@ -1592,6 +1593,14 @@ export function App() {
           onSaveDeepgramKey={handleSaveDeepgramKey}
           activeAiProvider={aiProvider}
           onSelectAiProvider={handleSelectAiProvider}
+          audioConfig={audioConfig}
+          onChangeAudioConfig={(partial) => {
+            setAudioConfig((prev) => {
+              const updated = { ...prev, ...partial };
+              audioEngineRef.current?.updateConfig(partial);
+              return updated;
+            });
+          }}
           speechConfig={speechConfig}
           onChangeSpeechConfig={(partial) => {
             setSpeechConfig((prev) => {

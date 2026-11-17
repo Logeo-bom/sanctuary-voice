@@ -157,9 +157,7 @@ export function App() {
     return localStorage.getItem(STORAGE_KEY_DEEPGRAM) || envKey || '';
   });
 
-  const [aiProvider, setAiProvider] = useState<'deepgram' | 'gemini'>(() => {
-    return (localStorage.getItem(STORAGE_KEY_AI_PROVIDER) as 'deepgram' | 'gemini') || 'deepgram';
-  });
+  const [aiProvider, setAiProvider] = useState<'deepgram' | 'gemini'>('deepgram');
 
   const [isListening, setIsListening] = useState<boolean>(false);
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
@@ -624,12 +622,47 @@ export function App() {
         } catch (err) {
           consecutiveFailuresRef.current += 1;
           console.warn('[Gemini Direct Error]:', err);
-          // Format helpful diagnostic message for rate limits
           const rawMsg = err instanceof Error ? err.message : String(err);
           const isQuota = rawMsg.includes('429') || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted');
           
           if (isQuota) {
-            setErrorNotice('Google Gemini free tier quota limit reached (requests per minute). Please switch AI Engine to "Deepgram + Gemini Fallback" in Settings for uninterrupted streaming.');
+            // Auto-fallback silently to Deepgram so streaming never stops for the user
+            console.log('[Auto-Fallback] Gemini quota reached, automatically engaging Deepgram stream.');
+            setAiProvider('deepgram');
+            aiProviderRef.current = 'deepgram';
+            try {
+              localStorage.setItem(STORAGE_KEY_AI_PROVIDER, 'deepgram');
+            } catch {}
+            // Retry this current chunk immediately via Deepgram
+            try {
+              const retryDg = await transcribeAndTranslateWithDeepgram({
+                audioBlob,
+                mimeType,
+                targetLanguageCode: targetLangRef.current,
+                deepgramApiKey: currentDgKey || undefined,
+                sourceLanguageCode: speaker1LangRef.current,
+              });
+              if (retryDg.utterances && retryDg.utterances.length > 0) {
+                for (const utt of retryDg.utterances) {
+                  upsertSpeakerAndAppendSegment({
+                    speakerId: utt.speakerId,
+                    speakerLabel: utt.speakerLabel,
+                    roleHint: utt.speakerId === 'speaker_1' ? 'main-speaker' : 'worship-leader',
+                    sourceLanguageCode: utt.sourceLanguageCode,
+                    sourceLanguageName: utt.sourceLanguageName,
+                    detectedDialect: utt.detectedDialect,
+                    originalText: utt.originalText,
+                    translatedText: utt.translatedText,
+                    backgroundNoiseNote: utt.backgroundNoiseNote,
+                    latencyMs: utt.latencyMs,
+                  });
+                }
+                consecutiveFailuresRef.current = 0;
+                setErrorNotice(null);
+              }
+            } catch {
+              // Ignore fallback retry errors
+            }
           } else if (consecutiveFailuresRef.current >= 3) {
             setErrorNotice(rawMsg.slice(0, 160));
           }

@@ -20,6 +20,7 @@ import {
   Maximize2,
   Minimize2,
   Activity,
+  Zap,
 } from 'lucide-react';
 import type {
   AudioMeterSnapshot,
@@ -618,11 +619,20 @@ export function App() {
               latencyMs: result.latencyMs,
             });
           }
+          consecutiveFailuresRef.current = 0;
           setErrorNotice(null);
         } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : 'Translation request failed';
-          setErrorNotice(msg);
+          consecutiveFailuresRef.current += 1;
+          console.warn('[Gemini Direct Error]:', err);
+          // Format helpful diagnostic message for rate limits
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const isQuota = rawMsg.includes('429') || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted');
+          
+          if (isQuota) {
+            setErrorNotice('Google Gemini free tier quota limit reached (requests per minute). Please switch AI Engine to "Deepgram + Gemini Fallback" in Settings for uninterrupted streaming.');
+          } else if (consecutiveFailuresRef.current >= 3) {
+            setErrorNotice(rawMsg.slice(0, 160));
+          }
         } finally {
           setIsProcessingChunk(false);
         }
@@ -1302,6 +1312,19 @@ export function App() {
                 ✕
               </button>
             </div>
+            {errorNotice.includes('Deepgram') && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleSelectAiProvider('deepgram');
+                  setErrorNotice(null);
+                }}
+                className="self-start px-2.5 py-1 rounded-lg bg-sky-500 text-slate-950 font-bold text-[10px] flex items-center gap-1 shadow hover:bg-sky-400 transition cursor-pointer"
+              >
+                <Zap className="w-3 h-3" />
+                Switch to Deepgram (Recommended)
+              </button>
+            )}
             {audioConfig.audioSource === 'tab' && (
               <button
                 type="button"

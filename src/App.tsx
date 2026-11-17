@@ -163,8 +163,12 @@ export function App() {
   const [isProcessingChunk, setIsProcessingChunk] = useState<boolean>(false);
   const [liveInterimText, setLiveInterimText] = useState<string>('');
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+  const [isFinishingQueue, setIsFinishingQueue] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  const consecutiveFailuresRef = useRef<number>(0);
+  const finishingQueueTimerRef = useRef<number | null>(null);
 
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
@@ -487,6 +491,7 @@ export function App() {
                 latencyMs: utt.latencyMs,
               });
             }
+            consecutiveFailuresRef.current = 0;
             setErrorNotice(null);
             setIsProcessingChunk(false);
             return;
@@ -547,14 +552,15 @@ export function App() {
                   latencyMs: geminiResult.latencyMs,
                 });
               }
+              consecutiveFailuresRef.current = 0;
               setErrorNotice(null);
             }
           } catch (geminiErr) {
-            const geminiMsg =
-              geminiErr instanceof Error ? geminiErr.message : 'Gemini fallback failed';
-            // Only show notice if both engines failed
-            if (deepgramError) {
-              setErrorNotice(`Deepgram: ${deepgramError} | Gemini: ${geminiMsg}`);
+            consecutiveFailuresRef.current += 1;
+            console.warn('[Pipeline Fallback Handshake]:', { deepgramError, geminiErr });
+            // Only alert the user if multiple consecutive chunks fail so temporary network jitter remains silent
+            if (consecutiveFailuresRef.current >= 3) {
+              setErrorNotice(`Connection unstable (${consecutiveFailuresRef.current} chunks delayed). Retrying stage audio...`);
             }
           }
         }
@@ -626,6 +632,15 @@ export function App() {
 
   const toggleLiveMicrophone = async () => {
     if (isListening) {
+      // Signal user that any final audio chunk in flight is finishing cleanly
+      setIsFinishingQueue(true);
+      if (finishingQueueTimerRef.current !== null) {
+        window.clearTimeout(finishingQueueTimerRef.current);
+      }
+      finishingQueueTimerRef.current = window.setTimeout(() => {
+        setIsFinishingQueue(false);
+      }, 3500);
+
       audioEngineRef.current?.stop();
       audioEngineRef.current = null;
       deepgramWsRef.current?.close();
@@ -1262,6 +1277,16 @@ export function App() {
             </div>
           </div>
         </div>
+
+        {/* Finishing In-Flight Queue Pill */}
+        {isFinishingQueue && (
+          <div className="mx-4 mt-2 px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-300 flex items-center justify-between animate-in fade-in duration-150">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+              Finalizing last translated sentence...
+            </span>
+          </div>
+        )}
 
         {/* Error Notice if any */}
         {errorNotice && (

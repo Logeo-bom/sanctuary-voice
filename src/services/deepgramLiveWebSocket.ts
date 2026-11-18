@@ -242,7 +242,7 @@ export class DeepgramLiveWebSocket {
       );
 
       this.onSegment({
-        speakerId: `speaker_${speakerNum + 1}`,
+        speakerId: 'speaker_1',
         speakerLabel:
           speakerNum === 0
             ? 'Pastor (Pulpit PA)'

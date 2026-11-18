@@ -17,6 +17,7 @@ export class ChurchAudioEngine {
   private analyserNode: AnalyserNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
+  private continuousStreamingRecorder: MediaRecorder | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private accumulatedSlices: Blob[] = [];
   private segmentStartTime = 0;
@@ -205,6 +206,7 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
+    this.startContinuousStreamRecorder();
     this.startSegmentedRecorder();
   }
 
@@ -254,6 +256,15 @@ export class ChurchAudioEngine {
       this.meterFrameId = null;
     }
 
+    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
+      try {
+        this.continuousStreamingRecorder.stop();
+      } catch {
+        // Ignore
+      }
+    }
+    this.continuousStreamingRecorder = null;
+
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try {
         this.mediaRecorder.stop();
@@ -289,6 +300,29 @@ export class ChurchAudioEngine {
     return '';
   }
 
+  private startContinuousStreamRecorder(): void {
+    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
+
+    const mimeType = this.getSupportedMimeType();
+    try {
+      // Dedicated single long-running continuous stream for the live WebSocket
+      // This sends chunk 0 (WebM Header) once, followed by seamless continuous 250ms audio slices
+      const streamRecorder = mimeType
+        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
+        : new MediaRecorder(this.destinationNode.stream);
+
+      streamRecorder.ondataavailable = (ev) => {
+        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
+        this.onStreamingSlice?.(ev.data);
+      };
+
+      this.continuousStreamingRecorder = streamRecorder;
+      streamRecorder.start(250);
+    } catch (err) {
+      console.warn('Failed to start dedicated streaming WebSocket recorder:', err);
+    }
+  }
+
   private startSegmentedRecorder(): void {
     if (!this.destinationNode || !this.isRunning) return;
 
@@ -304,12 +338,7 @@ export class ChurchAudioEngine {
       recorder.ondataavailable = (ev) => {
         if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
 
-        // 1. Immediately send live 250ms micro-slices to WebSocket (Deepgram) if attached
-        if (this.onStreamingSlice) {
-          this.onStreamingSlice(ev.data);
-        }
-
-        // 2. Accumulate slices for REST / Gemini full-segment translation
+        // Accumulate slices for REST / Gemini full-segment translation
         this.accumulatedSlices.push(ev.data);
         const elapsed = performance.now() - this.segmentStartTime;
         const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
@@ -339,7 +368,6 @@ export class ChurchAudioEngine {
       };
 
       this.mediaRecorder = recorder;
-      // Start continuous streaming slices every 250ms with intact WebM header in chunk 0
       recorder.start(250);
     } catch (err) {
       console.error('Failed to start continuous audio recorder:', err);

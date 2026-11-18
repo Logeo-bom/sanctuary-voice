@@ -246,6 +246,17 @@ export function App() {
   const handleChangeSpeaker1Language = (newLangCode: string) => {
     setSpeaker1SourceLang(newLangCode);
     localStorage.setItem(STORAGE_KEY_SOURCE_LANG, newLangCode);
+    speaker1LangRef.current = newLangCode;
+
+    // If live WebSocket is running, update its language configuration or reconnect
+    if (deepgramWsRef.current) {
+      deepgramWsRef.current.setLanguages(newLangCode, targetLangRef.current);
+    }
+    if (isListening && audioEngineRef.current) {
+      // Re-trigger live mic session to immediately connect to the chosen language model
+      void toggleLiveMicrophone().then(() => toggleLiveMicrophone());
+    }
+
     const langMeta = SUPPORTED_LANGUAGES.find((l) => l.code === newLangCode);
     setSpeakers((prev) =>
       prev.map((s) =>

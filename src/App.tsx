@@ -519,15 +519,18 @@ export function App() {
             setIsProcessingChunk(false);
             return;
           } else {
-            // No utterances returned from Deepgram, try Gemini fallback
-            deepgramFailed = true;
+            // Silence or pause in speech: natural gap between preacher sentences (not an error)
+            consecutiveFailuresRef.current = 0;
+            setErrorNotice(null);
+            setIsProcessingChunk(false);
+            return;
           }
         } catch (err) {
           deepgramFailed = true;
           deepgramError = err instanceof Error ? err.message : 'Deepgram request failed';
         }
 
-        // Automatic Fallback to Google Gemini 2.5 Flash if Deepgram failed or returned empty
+        // Automatic Fallback to Google Gemini 2.5 Flash if Deepgram network request failed
         if (deepgramFailed) {
           try {
             const recentContext = segmentsRef.current
@@ -581,9 +584,9 @@ export function App() {
           } catch (geminiErr) {
             consecutiveFailuresRef.current += 1;
             console.warn('[Pipeline Fallback Handshake]:', { deepgramError, geminiErr });
-            // Only alert the user if multiple consecutive chunks fail so temporary network jitter remains silent
-            if (consecutiveFailuresRef.current >= 3) {
-              setErrorNotice(`Connection unstable (${consecutiveFailuresRef.current} chunks delayed). Retrying stage audio...`);
+            // Only alert the user if 6 consecutive audio chunks completely fail
+            if (consecutiveFailuresRef.current >= 6) {
+              setErrorNotice('Audio stream delayed. Reconnecting to live stage feed...');
             }
           }
         }

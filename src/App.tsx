@@ -1611,6 +1611,19 @@ export function App() {
 
         {/* MAIN TRANSLATION READER AREA */}
         <main className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {/* Real-time Diagnostics Badge when listening */}
+          {isListening && (
+            <div className="px-2.5 py-1 bg-slate-900/90 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${meter.isVoiceDetected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                {meter.isVoiceDetected ? 'Voice Detected' : 'Listening for Voice...'} ({meter.rmsDb} dB)
+              </span>
+              <span>
+                Engine: {deepgramWsRef.current ? 'Live WebSocket' : 'Direct REST'}
+              </span>
+            </div>
+          )}
+
           {segments.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-3">
               <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center">

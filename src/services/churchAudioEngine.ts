@@ -12,17 +12,10 @@ export class ChurchAudioEngine {
   private highPassNode: BiquadFilterNode | null = null;
   private synthNotchNode: BiquadFilterNode | null = null;
   private vocalPresenceNode: BiquadFilterNode | null = null;
-  private vocalBandpassLowNode: BiquadFilterNode | null = null;
-  private vocalBandpassHighNode: BiquadFilterNode | null = null;
-  private spectralExpanderNode: ScriptProcessorNode | null = null;
   private preAmpGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
-
-  // Real-time Audacity-style Spectral Subtraction Noise Profile
-  private noiseFloorEstimate = 0.012;
-  private spectralAlpha = 0.05; // smoothing constant for background room noise tracking
 
   private mediaRecorder: MediaRecorder | null = null;
   private accumulatedSlices: Blob[] = [];
@@ -151,14 +144,18 @@ export class ChurchAudioEngine {
     }
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.audioContext = new AudioCtx({ sampleRate: 16000 });
+    // Mobile browsers (Chrome/Safari) work reliably when using the hardware default sampleRate (44100 or 48000)
+    this.audioContext = new AudioCtx();
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
 
     this.sourceNode = this.audioContext.createMediaStreamSource(this.rawStream);
 
     // 1. High-Pass Filter (cuts stage rumble, AC hum, and synth sub-bass below 85Hz-120Hz)
     this.highPassNode = this.audioContext.createBiquadFilter();
     this.highPassNode.type = 'highpass';
-    this.highPassNode.frequency.value = this.config.highPassHz;
+    this.highPassNode.frequency.value = this.config.highPassHz || 90;
     this.highPassNode.Q.value = 0.707;
 
     // 2. Synth Pad Cut Filter (attenuates warm worship pad mud around 280Hz)
@@ -175,79 +172,11 @@ export class ChurchAudioEngine {
     this.vocalPresenceNode.Q.value = 1.0;
     this.vocalPresenceNode.gain.value = this.config.synthPadFilterEnabled ? 5.5 : 0;
 
-    // 4. Audacity-style Vocal Band Matrix (tight speech bandpass 250Hz - 4200Hz to eliminate sub-bass mud and cymbal sizzle)
-    const isNeuralActive = this.config.neuralVoiceIsolationEnabled !== false;
-
-    this.vocalBandpassLowNode = this.audioContext.createBiquadFilter();
-    this.vocalBandpassLowNode.type = 'highpass';
-    this.vocalBandpassLowNode.frequency.value = isNeuralActive ? 250 : 80;
-    this.vocalBandpassLowNode.Q.value = 0.707;
-
-    this.vocalBandpassHighNode = this.audioContext.createBiquadFilter();
-    this.vocalBandpassHighNode.type = 'lowpass';
-    this.vocalBandpassHighNode.frequency.value = isNeuralActive ? 4200 : 7800;
-    this.vocalBandpassHighNode.Q.value = 0.707;
-
-    // 5. Audacity-style Real-Time Spectral Subtraction / Downward Vocal Expander
-    // Dynamically tracks background noise floor and attenuates noise when voice energy dips
-    const bufferSize = 1024;
-    this.spectralExpanderNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
-    this.spectralExpanderNode.onaudioprocess = (audioProcessingEvent) => {
-      const inputBuffer = audioProcessingEvent.inputBuffer;
-      const outputBuffer = audioProcessingEvent.outputBuffer;
-      const inputData = inputBuffer.getChannelData(0);
-      const outputData = outputBuffer.getChannelData(0);
-
-      if (!this.config.neuralVoiceIsolationEnabled) {
-        // Pass-through when disabled
-        outputData.set(inputData);
-        return;
-      }
-
-      // Calculate instantaneous root-mean-square (RMS) of this frame
-      let frameEnergy = 0;
-      for (let i = 0; i < inputData.length; i++) {
-        const val = inputData[i];
-        frameEnergy += val * val;
-      }
-      const rms = Math.sqrt(frameEnergy / inputData.length);
-
-      // Audacity Spectral Profile Learning:
-      // If signal is low, adaptively update estimated ambient room noise floor
-      if (rms < this.noiseFloorEstimate * 1.5 || rms < 0.02) {
-        this.noiseFloorEstimate = (1 - this.spectralAlpha) * this.noiseFloorEstimate + this.spectralAlpha * rms;
-        // Clamp noise floor to reasonable limits
-        if (this.noiseFloorEstimate < 0.003) this.noiseFloorEstimate = 0.003;
-        if (this.noiseFloorEstimate > 0.08) this.noiseFloorEstimate = 0.08;
-      }
-
-      // Signal-to-Noise Ratio (SNR) in linear space
-      const snr = rms / (this.noiseFloorEstimate + 0.0001);
-
-      // Downward Expansion: If below voice threshold, attenuate background hiss/synth/rumble
-      // Speech presence: snr > 2.0. Ambient background: snr < 1.4
-      let gain = 1.0;
-      if (snr < 1.3) {
-        // Heavy attenuation on room silence/synth drone (downward expansion -16dB to -24dB)
-        gain = Math.max(0.08, (snr / 1.3) ** 2);
-      } else if (snr < 2.0) {
-        // Soft transition zone
-        gain = 0.4 + 0.6 * ((snr - 1.3) / 0.7);
-      } else {
-        // Full vocal pass-through
-        gain = 1.0;
-      }
-
-      for (let i = 0; i < inputData.length; i++) {
-        outputData[i] = inputData[i] * gain;
-      }
-    };
-
-    // 6. Back-Row Pre-Amp Gain Boost (0 dB to +24 dB linear conversion)
+    // 4. Back-Row Pre-Amp Gain Boost (0 dB to +24 dB linear conversion)
     this.preAmpGainNode = this.audioContext.createGain();
     this.preAmpGainNode.gain.value = this.dbToLinear(this.config.preAmpGainDb);
 
-    // 7. Dynamic Range Compressor (levels quiet prayers vs loud preaching)
+    // 5. Dynamic Range Compressor (levels quiet prayers vs loud preaching)
     this.compressorNode = this.audioContext.createDynamicsCompressor();
     this.compressorNode.threshold.value = this.config.dynamicCompressorEnabled ? -30 : -6;
     this.compressorNode.knee.value = 20;
@@ -255,16 +184,16 @@ export class ChurchAudioEngine {
     this.compressorNode.attack.value = 0.004;
     this.compressorNode.release.value = 0.22;
 
-    // 8. Analyser for live dB meter & vocal formant detection
+    // 6. Analyser for live dB meter & vocal formant detection
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = 256;
     this.analyserNode.smoothingTimeConstant = 0.65;
 
-    // 9. Destination stream carrying the DSP-boosted audio to the AI recorder
+    // 7. Destination stream carrying the DSP-boosted audio to the AI recorder
     this.destinationNode = this.audioContext.createMediaStreamDestination();
 
-    // Connect DSP graph:
-    // When spectral isolation is active, route through filter band; otherwise clean direct route
+    // Pristine, ultra-reliable hardware DSP chain:
+    // source -> highPass -> synthNotch -> vocalPresence -> preAmp -> compressor -> analyser -> destination
     this.sourceNode
       .connect(this.highPassNode)
       .connect(this.synthNotchNode)
@@ -272,17 +201,6 @@ export class ChurchAudioEngine {
       .connect(this.preAmpGainNode)
       .connect(this.compressorNode)
       .connect(this.analyserNode);
-
-    // If spectral expander is active, also connect into chain
-    if (this.spectralExpanderNode) {
-      try {
-        this.vocalPresenceNode.connect(this.vocalBandpassLowNode!);
-        this.vocalBandpassLowNode!.connect(this.vocalBandpassHighNode!);
-        this.vocalBandpassHighNode!.connect(this.spectralExpanderNode);
-      } catch {
-        // Fallback to direct path
-      }
-    }
 
     this.compressorNode.connect(this.destinationNode);
 
@@ -309,16 +227,6 @@ export class ChurchAudioEngine {
 
     if (this.preAmpGainNode && newConfig.preAmpGainDb !== undefined) {
       this.preAmpGainNode.gain.value = this.dbToLinear(newConfig.preAmpGainDb);
-    }
-
-    if (newConfig.neuralVoiceIsolationEnabled !== undefined) {
-      const isNeural = Boolean(newConfig.neuralVoiceIsolationEnabled);
-      if (this.vocalBandpassLowNode) {
-        this.vocalBandpassLowNode.frequency.value = isNeural ? 250 : 80;
-      }
-      if (this.vocalBandpassHighNode) {
-        this.vocalBandpassHighNode.frequency.value = isNeural ? 4200 : 7800;
-      }
     }
 
     if (this.compressorNode && newConfig.dynamicCompressorEnabled !== undefined) {

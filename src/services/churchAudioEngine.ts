@@ -130,7 +130,6 @@ export class ChurchAudioEngine {
         noiseSuppression: !this.config.bypassOsProcessing,
         autoGainControl: !this.config.bypassOsProcessing,
         channelCount: 1,
-        sampleRate: 16000,
       };
 
       if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') {

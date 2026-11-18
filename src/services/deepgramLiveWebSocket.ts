@@ -55,7 +55,7 @@ export class DeepgramLiveWebSocket {
   public async connect(): Promise<void> {
     // 1. Fetch short-lived token via our serverless grant endpoint (uses process.env.DEEPGRAM_API_KEY)
     let accessToken = this.apiKey;
-    let authProtocol = 'token'; // 'token' for master/temporary API key, 'bearer' for JWT access_token
+    let authProtocol = 'token';
     try {
       const headers: Record<string, string> = {};
       if (this.apiKey) {
@@ -72,7 +72,7 @@ export class DeepgramLiveWebSocket {
           authProtocol = 'token';
         } else if (tokenData?.access_token) {
           accessToken = tokenData.access_token;
-          authProtocol = 'bearer';
+          authProtocol = 'token'; // Deepgram browser WebSocket requires ['token', token]
         }
       }
     } catch {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   X,
   Wallet,
@@ -9,6 +9,7 @@ import {
   Radio,
   Zap,
   Sliders,
+  Mic,
 } from 'lucide-react';
 import type {
   AudioProcessingConfig,
@@ -16,6 +17,7 @@ import type {
   SpeechOutputConfig,
   VoiceEngineMode,
 } from '../types/translator';
+import { ChurchAudioEngine } from '../services/churchAudioEngine';
 
 interface SettingsAndWalletModalProps {
   isOpen: boolean;
@@ -46,6 +48,16 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   wallet,
   onTopUpMinutes,
 }) => {
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      void ChurchAudioEngine.listAudioInputDevices().then((devs) => {
+        setAudioDevices(devs);
+      });
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -171,6 +183,38 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </div>
           <p className="text-[11px] text-slate-400 leading-snug">
             Applies continuous spectral subtraction to isolate the lead speaker's voice from choir singing, organ drones, worship synthesizer pads, and church HVAC rumble.
+          </p>
+        </div>
+
+        {/* 4. Audio Input Hardware Selector (Feature 2: Soundboard / USB / Lapel Mic) */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <Mic className="w-4 h-4 text-emerald-400" />
+              Microphone &amp; Soundboard Input Source
+            </span>
+            <span className="text-[10px] text-emerald-400 font-medium">
+              ✓ Auto-Detects
+            </span>
+          </div>
+          <select
+            value={audioConfig.selectedDeviceId || 'default'}
+            onChange={(e) =>
+              onChangeAudioConfig({
+                selectedDeviceId: e.target.value,
+              })
+            }
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+          >
+            <option value="default">Default (Phone / System Microphone)</option>
+            {audioDevices.map((d, idx) => (
+              <option key={d.deviceId || idx} value={d.deviceId}>
+                {d.label || `Audio Input Device ${idx + 1}`}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400 leading-tight">
+            Leave on <strong>Default</strong> for normal pew seating. AV technicians can plug a USB mixing console, audio interface, or Bluetooth lapel mic here.
           </p>
         </div>
 

@@ -38,6 +38,27 @@ export class EarphoneSpeechEngine {
     this.voices = window.speechSynthesis.getVoices();
   }
 
+  public unlockAudio(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextClass) {
+        if (!this.audioCtx) {
+          this.audioCtx = new AudioContextClass();
+        }
+        if (this.audioCtx.state === 'suspended') {
+          void this.audioCtx.resume();
+        }
+      }
+      // Prime a silent 1-sample buffer to satisfy mobile Chrome's user-gesture requirement
+      const dummyAudio = new Audio();
+      dummyAudio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      void dummyAudio.play().catch(() => {});
+    } catch {
+      // Ignore
+    }
+  }
+
   public updateConfig(partial: Partial<SpeechOutputConfig>): void {
     this.config = { ...this.config, ...partial };
     if (partial.enabled === false) {

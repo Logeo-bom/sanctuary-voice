@@ -727,6 +727,8 @@ export function App() {
 
     try {
       setErrorNotice(null);
+      // Unlock mobile browser speech playback on user gesture
+      speechEngineRef.current?.unlockAudio();
 
       // If Deepgram is selected, connect direct low-latency WebSocket (using serverless token or stored key)
       if (aiProviderRef.current === 'deepgram') {

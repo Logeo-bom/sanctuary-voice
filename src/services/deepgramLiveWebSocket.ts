@@ -263,7 +263,21 @@ export class DeepgramLiveWebSocket {
 
   public sendAudio(blobOrBuffer: Blob | ArrayBuffer): void {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(blobOrBuffer);
+      if (blobOrBuffer instanceof Blob) {
+        // Converting Blob to ArrayBuffer before transmission ensures binary frame compatibility
+        // across mobile WebKit and Chrome WebSocket implementations
+        blobOrBuffer.arrayBuffer().then((buffer) => {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(buffer);
+          }
+        }).catch(() => {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(blobOrBuffer);
+          }
+        });
+      } else {
+        this.socket.send(blobOrBuffer);
+      }
     }
   }
 

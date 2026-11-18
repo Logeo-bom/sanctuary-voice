@@ -264,17 +264,25 @@ export class ChurchAudioEngine {
     this.destinationNode = this.audioContext.createMediaStreamDestination();
 
     // Connect DSP graph:
-    // source -> highPass -> synthNotch -> vocalPresence -> vocalBandpassLow -> vocalBandpassHigh -> spectralExpander -> preAmp -> compressor -> analyser -> destination
+    // When spectral isolation is active, route through filter band; otherwise clean direct route
     this.sourceNode
       .connect(this.highPassNode)
       .connect(this.synthNotchNode)
       .connect(this.vocalPresenceNode)
-      .connect(this.vocalBandpassLowNode)
-      .connect(this.vocalBandpassHighNode)
-      .connect(this.spectralExpanderNode)
       .connect(this.preAmpGainNode)
       .connect(this.compressorNode)
       .connect(this.analyserNode);
+
+    // If spectral expander is active, also connect into chain
+    if (this.spectralExpanderNode) {
+      try {
+        this.vocalPresenceNode.connect(this.vocalBandpassLowNode!);
+        this.vocalBandpassLowNode!.connect(this.vocalBandpassHighNode!);
+        this.vocalBandpassHighNode!.connect(this.spectralExpanderNode);
+      } catch {
+        // Fallback to direct path
+      }
+    }
 
     this.compressorNode.connect(this.destinationNode);
 

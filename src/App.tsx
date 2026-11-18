@@ -21,6 +21,7 @@ import {
   Minimize2,
   Activity,
   Zap,
+  BookOpen,
 } from 'lucide-react';
 import type {
   AudioMeterSnapshot,
@@ -41,6 +42,11 @@ import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslato
 import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
+import {
+  detectScriptureReferences,
+  fetchScriptureVerse,
+  type ScriptureData,
+} from './services/scriptureService';
 
 const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
 const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
@@ -166,6 +172,8 @@ export function App() {
   const [isFinishingQueue, setIsFinishingQueue] = useState<boolean>(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [activeScripture, setActiveScripture] = useState<ScriptureData | null>(null);
+  const [isScriptureExpanded, setIsScriptureExpanded] = useState<boolean>(false);
 
   const consecutiveFailuresRef = useRef<number>(0);
   const finishingQueueTimerRef = useRef<number | null>(null);
@@ -430,6 +438,21 @@ export function App() {
       }
 
       setSegments((prev) => [...prev, newSegment]);
+
+      // Detect scripture citations in real time across original and translated text
+      const detectedRefs = [
+        ...detectScriptureReferences(params.originalText),
+        ...detectScriptureReferences(params.translatedText),
+      ];
+      if (detectedRefs.length > 0) {
+        const primaryRef = detectedRefs[0];
+        void fetchScriptureVerse(primaryRef, targetLangRef.current).then((data) => {
+          if (data) {
+            setActiveScripture(data);
+            setIsScriptureExpanded(false);
+          }
+        });
+      }
 
       const shouldSpeakInEarphones = !isMutedByLock && speechEngineRef.current;
 
@@ -1464,6 +1487,60 @@ export function App() {
             </div>
           </div>
         </div>
+
+        {/* Smart Floating Scripture Banner */}
+        {activeScripture && (
+          <div className="mx-4 mt-2 bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/70 border border-amber-500/40 rounded-2xl p-3 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div
+                onClick={() => setIsScriptureExpanded((prev) => !prev)}
+                className="flex items-center gap-1.5 cursor-pointer flex-1"
+              >
+                <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-xs font-bold text-amber-300">
+                  {activeScripture.reference}
+                </span>
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-medium">
+                  {activeScripture.translation}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    speechEngineRef.current?.speakTranslation(
+                      `${activeScripture.reference}. ${activeScripture.text}`,
+                      targetLangRef.current,
+                      true,
+                      apiKeyRef.current
+                    )
+                  }
+                  className="p-1 rounded-md text-amber-300 hover:text-white cursor-pointer"
+                  title="Read verse in earphones"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveScripture(null)}
+                  className="p-1 rounded-md text-slate-400 hover:text-white cursor-pointer"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <p
+              onClick={() => setIsScriptureExpanded((prev) => !prev)}
+              className={`text-xs text-amber-100/90 leading-relaxed cursor-pointer ${
+                isScriptureExpanded ? '' : 'line-clamp-2'
+              }`}
+            >
+              “{activeScripture.text}”
+            </p>
+          </div>
+        )}
 
         {/* Finishing In-Flight Queue Pill */}
         {isFinishingQueue && (

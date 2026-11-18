@@ -51,7 +51,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? `&language=${encodeURIComponent(sourceLang)}`
         : '&detect_language=true';
 
-    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=nova-2&diarize=true&punctuate=true&smart_format=true${langQuery}`;
+    // Model selection: nova-2 for single pinned language, nova-3 for multilingual auto-detection
+    const modelName = sourceLang === 'auto' ? 'nova-3' : 'nova-2';
+    const autoLangParam = sourceLang === 'auto' ? '&language=multi' : langQuery;
+
+    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true${autoLangParam}`;
 
     const dgResponse = await fetch(deepgramUrl, {
       method: 'POST',

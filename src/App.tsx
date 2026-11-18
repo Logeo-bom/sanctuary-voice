@@ -528,6 +528,7 @@ export function App() {
         } catch (err) {
           deepgramFailed = true;
           deepgramError = err instanceof Error ? err.message : 'Deepgram request failed';
+          console.warn('[Deepgram Chunk Error]:', deepgramError);
         }
 
         // Automatic Fallback to Google Gemini 2.5 Flash if Deepgram network request failed
@@ -584,9 +585,10 @@ export function App() {
           } catch (geminiErr) {
             consecutiveFailuresRef.current += 1;
             console.warn('[Pipeline Fallback Handshake]:', { deepgramError, geminiErr });
-            // Only alert the user if 6 consecutive audio chunks completely fail
+            // Only alert the user if 6 consecutive audio chunks completely fail with actual error
             if (consecutiveFailuresRef.current >= 6) {
-              setErrorNotice('Audio stream delayed. Reconnecting to live stage feed...');
+              const cleanErr = deepgramError || (geminiErr instanceof Error ? geminiErr.message : '');
+              setErrorNotice(cleanErr ? cleanErr.slice(0, 140) : 'Connecting to live stage feed...');
             }
           }
         }

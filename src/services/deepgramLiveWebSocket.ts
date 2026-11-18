@@ -100,20 +100,18 @@ export class DeepgramLiveWebSocket {
 
         if (isAuto) {
           // Nova-3 multi-language auto-detection
-          // Use keyterm parameter (Nova-3 does not accept keywords with intensity weights)
           const keytermParams = boostedWords
             .slice(0, 20)
             .map((w) => `&keyterm=${encodeURIComponent(w)}`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${keytermParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=100${keytermParams}`;
         } else {
           // Specific language pinned (e.g. ko, en, es, pt, etc.)
-          // Nova-2 supports keywords with weight intensity (:2) across all languages
           const keywordParams = boostedWords
             .slice(0, 25)
             .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300${keywordParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=100${keywordParams}`;
         }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
@@ -164,11 +162,11 @@ export class DeepgramLiveWebSocket {
               const hasTerminalPunctuation = /[.?!]$/.test(transcript) || /[다요죠죠][.?!]?$/.test(transcript);
               const totalWordsCount = currentAccumulated.split(/\s+/).length;
 
-              // Fast clause flush: if terminal punctuation OR speech_final OR reached a substantial thought (12+ words), flush
-              if (speechFinal || (hasTerminalPunctuation && totalWordsCount >= 3) || totalWordsCount >= 14) {
+              // Fast clause flush: if terminal punctuation OR speech_final OR reached a natural clause (6+ words), flush immediately
+              if (speechFinal || hasTerminalPunctuation || totalWordsCount >= 7) {
                 await this.flushAccumulatedSentence();
               } else {
-                // Safety timer: flush after 1.8 seconds of silence to prevent lag and ensure responsive continuous streaming
+                // Safety timer: flush after 800ms of pause so latency drops to under 1.5 seconds
                 this.resetSafetyFlushTimer();
               }
             }
@@ -204,7 +202,7 @@ export class DeepgramLiveWebSocket {
     }
     this.flushTimer = window.setTimeout(() => {
       void this.flushAccumulatedSentence();
-    }, 1800);
+    }, 800);
   }
 
   private async flushAccumulatedSentence(): Promise<void> {

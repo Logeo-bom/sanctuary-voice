@@ -415,7 +415,8 @@ export class ChurchAudioEngine {
         const inputData = ev.inputBuffer.getChannelData(0);
         const pcm16 = this.downsampleToInt16(inputData, inputSampleRate, targetSampleRate);
         if (pcm16.byteLength > 0) {
-          this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
+          const slice = pcm16.buffer.slice(pcm16.byteOffset, pcm16.byteOffset + pcm16.byteLength) as ArrayBuffer;
+          this.onStreamingSlice(slice);
         }
       };
 

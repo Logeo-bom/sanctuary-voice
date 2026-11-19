@@ -1582,45 +1582,57 @@ export function App() {
 
         {/* Source (Speaker 1) & Target ("Translate to") Language Selectors */}
         {!isFocusMode && (
-          <div className="px-4 py-2.5 bg-slate-900/60 border-b border-slate-900 grid grid-cols-2 gap-2 shrink-0 animate-in fade-in duration-200">
-            <div>
-              <label className="block text-[10px] text-slate-400 font-medium mb-1">
-                Speaker 1 Language:
-              </label>
-              <select
-                value={speaker1SourceLang}
-                onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
-              >
-                <option value="auto">✨ Auto-Detect (EN/EU)</option>
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.flag} {lang.name}
-                  </option>
-                ))}
-              </select>
-              {speaker1SourceLang === 'auto' && (
-                <p className="text-[9px] text-amber-400/90 mt-1 leading-tight">
-                  Tip: Pick Norwegian, French, or Spanish directly for best accuracy.
-                </p>
-              )}
-            </div>
+          <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-900 space-y-1.5 shrink-0 animate-in fade-in duration-200">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-slate-400 font-medium">
+                    Speaker 1 Language:
+                  </label>
+                  <span className="text-[9px] text-sky-400/80 font-semibold">30+ Languages</span>
+                </div>
+                <select
+                  value={speaker1SourceLang}
+                  onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
+                >
+                  <option value="auto">✨ Auto-Detect (EN/EU)</option>
+                  <optgroup label="Supported Languages (30+ Global Dialects)">
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.flag} {lang.name} ({lang.nativeName})
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+                {speaker1SourceLang === 'auto' && (
+                  <p className="text-[9px] text-amber-400/90 mt-1 leading-tight">
+                    Tip: Pick Norwegian, French, or Spanish directly for best accuracy.
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-[10px] text-sky-400 font-semibold mb-1">
-                Translate To (My Earphones):
-              </label>
-              <select
-                value={targetLangCode}
-                onChange={(e) => handleChangeTargetLanguage(e.target.value)}
-                className="w-full bg-slate-900 border border-sky-500/40 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
-              >
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.flag} {lang.name}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-sky-400 font-semibold">
+                    Translate To (Earphones):
+                  </label>
+                  <span className="text-[9px] text-emerald-400/80 font-semibold">100+ via Cloud</span>
+                </div>
+                <select
+                  value={targetLangCode}
+                  onChange={(e) => handleChangeTargetLanguage(e.target.value)}
+                  className="w-full bg-slate-900 border border-sky-500/40 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
+                >
+                  <optgroup label="Direct Neural Languages">
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.flag} {lang.name} ({lang.nativeName})
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
             </div>
           </div>
         )}

@@ -1,7 +1,7 @@
 import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/translator';
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
-export type AudioStreamingSliceCallback = (sliceBlob: Blob) => void;
+export type AudioStreamingSliceCallback = (pcmBuffer: ArrayBuffer) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
 export type StreamEndedCallback = () => void;
 
@@ -16,9 +16,11 @@ export class ChurchAudioEngine {
   private compressorNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
+  private pcmProcessorNode: ScriptProcessorNode | null = null;
+  private silentSinkNode: GainNode | null = null;
 
-  private continuousStreamingRecorder: MediaRecorder | null = null;
   private mediaRecorder: MediaRecorder | null = null;
+  private useSegmentedRecorder = false;
   private accumulatedSlices: Blob[] = [];
   private segmentStartTime = 0;
   private meterFrameId: number | null = null;
@@ -53,8 +55,12 @@ export class ChurchAudioEngine {
     }
   }
 
-  public async start(sourceOverride?: 'mic' | 'tab'): Promise<void> {
+  public async start(
+    sourceOverride?: 'mic' | 'tab',
+    enableSegmentedRecorder = true
+  ): Promise<void> {
     if (this.isRunning) return;
+    this.useSegmentedRecorder = enableSegmentedRecorder;
 
     const source = sourceOverride || this.config.audioSource || 'mic';
 
@@ -206,8 +212,12 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
-    this.startContinuousStreamRecorder();
-    this.startSegmentedRecorder();
+    if (this.onStreamingSlice) {
+      this.startPcmStreamer();
+    }
+    if (this.useSegmentedRecorder) {
+      this.startSegmentedRecorder();
+    }
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -237,14 +247,15 @@ export class ChurchAudioEngine {
 
     if (this.isRunning && (prevBypass !== this.config.bypassOsProcessing || prevDevice !== this.config.selectedDeviceId)) {
       void this.restart();
-    } else if (this.isRunning && prevChunkSec !== this.config.chunkDurationSec) {
+    } else if (this.isRunning && this.useSegmentedRecorder && prevChunkSec !== this.config.chunkDurationSec) {
       this.restartSegmentedRecorder();
     }
   }
 
   public async restart(): Promise<void> {
+    const keepSegmented = this.useSegmentedRecorder;
     this.stop();
-    await this.start();
+    await this.start(undefined, keepSegmented);
   }
 
   public stop(): void {
@@ -256,14 +267,24 @@ export class ChurchAudioEngine {
       this.meterFrameId = null;
     }
 
-    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
+    if (this.pcmProcessorNode) {
       try {
-        this.continuousStreamingRecorder.stop();
+        this.pcmProcessorNode.onaudioprocess = null;
+        this.pcmProcessorNode.disconnect();
       } catch {
         // Ignore
       }
+      this.pcmProcessorNode = null;
     }
-    this.continuousStreamingRecorder = null;
+
+    if (this.silentSinkNode) {
+      try {
+        this.silentSinkNode.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.silentSinkNode = null;
+    }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try {
@@ -300,27 +321,71 @@ export class ChurchAudioEngine {
     return '';
   }
 
-  private startContinuousStreamRecorder(): void {
-    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
+  /**
+   * Streams raw 16kHz mono signed 16-bit PCM (linear16) directly to Deepgram Live WebSocket.
+   * Unlike WebM/MediaRecorder, raw PCM has no container headers, so WebSocket reconnects and
+   * mid-sermon language switches are 100% seamless with ~85ms frame latency.
+   */
+  private startPcmStreamer(): void {
+    if (!this.audioContext || !this.compressorNode || !this.isRunning || !this.onStreamingSlice) return;
 
-    const mimeType = this.getSupportedMimeType();
     try {
-      // Dedicated single long-running continuous stream for the live WebSocket
-      // This sends chunk 0 (WebM Header) once, followed by seamless continuous 250ms audio slices
-      const streamRecorder = mimeType
-        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
-        : new MediaRecorder(this.destinationNode.stream);
+      const targetSampleRate = 16000;
+      const inputSampleRate = this.audioContext.sampleRate;
+      const bufferSize = 4096;
 
-      streamRecorder.ondataavailable = (ev) => {
-        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
-        this.onStreamingSlice?.(ev.data);
+      const processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+      const silentSink = this.audioContext.createGain();
+      silentSink.gain.value = 0;
+
+      processor.onaudioprocess = (ev) => {
+        if (!this.isRunning || !this.onStreamingSlice) return;
+        const inputData = ev.inputBuffer.getChannelData(0);
+        const pcm16 = this.downsampleToInt16(inputData, inputSampleRate, targetSampleRate);
+        if (pcm16.byteLength > 0) {
+          this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
+        }
       };
 
-      this.continuousStreamingRecorder = streamRecorder;
-      streamRecorder.start(250);
+      this.compressorNode.connect(processor);
+      processor.connect(silentSink);
+      silentSink.connect(this.audioContext.destination);
+
+      this.pcmProcessorNode = processor;
+      this.silentSinkNode = silentSink;
     } catch (err) {
-      console.warn('Failed to start dedicated streaming WebSocket recorder:', err);
+      console.warn('Failed to start 16kHz PCM streamer:', err);
     }
+  }
+
+  private downsampleToInt16(
+    input: Float32Array,
+    inputSampleRate: number,
+    targetSampleRate: number
+  ): Int16Array {
+    if (inputSampleRate === targetSampleRate) {
+      const out = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      return out;
+    }
+
+    const ratio = inputSampleRate / targetSampleRate;
+    const outputLength = Math.max(1, Math.floor(input.length / ratio));
+    const out = new Int16Array(outputLength);
+
+    for (let i = 0; i < outputLength; i++) {
+      const srcIdx = i * ratio;
+      const idx0 = Math.floor(srcIdx);
+      const idx1 = Math.min(idx0 + 1, input.length - 1);
+      const frac = srcIdx - idx0;
+      const sample = input[idx0] * (1 - frac) + input[idx1] * frac;
+      const clamped = Math.max(-1, Math.min(1, sample));
+      out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+    }
+    return out;
   }
 
   private startSegmentedRecorder(): void {
@@ -409,12 +474,17 @@ export class ChurchAudioEngine {
       const peakDb = Math.max(-75, 20 * Math.log10(Math.max(peak, 0.0001)));
 
       // Check energy specifically in the human vocal formant band (300Hz - 3400Hz)
-      // With 16kHz sampleRate and 256 FFT, each bin is ~62.5Hz. Bins 5..54 correspond to 312Hz..3375Hz.
+      // Dynamically calculate FFT bins using actual hardware sampleRate (16kHz / 44.1kHz / 48kHz)
+      const nyquist = (this.audioContext?.sampleRate || 48000) / 2;
+      const binHz = nyquist / freqDomain.length;
+      const lowBin = Math.max(1, Math.floor(300 / binHz));
+      const highBin = Math.min(freqDomain.length - 1, Math.ceil(3400 / binHz));
       let vocalBandSum = 0;
-      for (let bin = 5; bin <= 54 && bin < freqDomain.length; bin++) {
+      const binCount = Math.max(1, highBin - lowBin + 1);
+      for (let bin = lowBin; bin <= highBin; bin++) {
         vocalBandSum += freqDomain[bin];
       }
-      const vocalBandAvg = vocalBandSum / 50;
+      const vocalBandAvg = vocalBandSum / binCount;
 
       // Relaxed detection for distant TV / distant pulpit speakers (rmsDb > -58 or vocalBandAvg > 12)
       const isVoiceDetected = rmsDb > -58 || vocalBandAvg > 12;

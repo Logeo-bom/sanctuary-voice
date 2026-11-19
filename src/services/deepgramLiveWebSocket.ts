@@ -103,19 +103,19 @@ export class DeepgramLiveWebSocket {
         const boostedWords = getKeywordsForLanguage(this.sourceLang, this.customChurchGlossary);
 
         if (isAuto) {
-          // Nova-3 multi-language auto-detection
+          // Nova-3 multi-language auto-detection (raw 16kHz mono linear16 PCM)
           const keytermParams = boostedWords
             .slice(0, 20)
             .map((w) => `&keyterm=${encodeURIComponent(w)}`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=100${keytermParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&encoding=linear16&sample_rate=16000&channels=1&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=150&utterance_end_ms=1000${keytermParams}`;
         } else {
-          // Specific language pinned (e.g. ko, en, es, pt, etc.)
+          // Specific language pinned (e.g. ko, en, es, pt, tl, etc.) with raw 16kHz mono linear16 PCM
           const keywordParams = boostedWords
             .slice(0, 25)
             .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=100${keywordParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&encoding=linear16&sample_rate=16000&channels=1&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=150&utterance_end_ms=1000${keywordParams}`;
         }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
@@ -132,15 +132,30 @@ export class DeepgramLiveWebSocket {
             const channel = data?.channel;
             const alt = channel?.alternatives?.[0];
             const transcript = alt?.transcript?.trim();
+            const confidence = typeof alt?.confidence === 'number' ? alt.confidence : 1;
             const isFinal = Boolean(data?.is_final);
             const speechFinal = Boolean(data?.speech_final);
 
             if (transcript && transcript.length > 0 && !isFinal) {
-              this.onInterim?.(transcript);
+              if (confidence >= 0.45) {
+                this.onInterim?.(transcript);
+              }
             }
 
             if (transcript && transcript.length > 0 && isFinal) {
               this.onInterim?.(''); // Clear interim when finalized
+
+              // Hallucination & Room-Noise Gate:
+              // Drop punctuation-only chunks or low-confidence background noise / worship music artifacts
+              const strippedText = transcript.replace(/[\s.,?!;:'"()\-–—…]+/g, '');
+              if (!strippedText) {
+                return;
+              }
+              const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+              if (confidence < 0.52 || (confidence < 0.65 && wordCount <= 2)) {
+                return;
+              }
+
               // Deduplicate consecutive identical raw chunks
               const normalizedChunk = transcript.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
               const prevChunk = this.lastChunkText.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
@@ -149,13 +164,28 @@ export class DeepgramLiveWebSocket {
               }
               this.lastChunkText = transcript;
 
-              // Determine speaker
-              if (alt.words && alt.words.length > 0 && typeof alt.words[0].speaker === 'number') {
-                const speaker = alt.words[0].speaker;
-                if (this.accumulatedWords.length > 0 && speaker !== this.currentSpeakerNum) {
-                  await this.flushAccumulatedSentence();
+              // Determine dominant speaker via majority vote across all words in this phrase
+              if (Array.isArray(alt.words) && alt.words.length > 0) {
+                const speakerCounts = new Map<number, number>();
+                for (const w of alt.words) {
+                  if (typeof w.speaker === 'number') {
+                    speakerCounts.set(w.speaker, (speakerCounts.get(w.speaker) || 0) + 1);
+                  }
                 }
-                this.currentSpeakerNum = speaker;
+                if (speakerCounts.size > 0) {
+                  let dominantSpeaker = this.currentSpeakerNum;
+                  let maxCount = -1;
+                  for (const [spkNum, count] of speakerCounts.entries()) {
+                    if (count > maxCount) {
+                      maxCount = count;
+                      dominantSpeaker = spkNum;
+                    }
+                  }
+                  if (this.accumulatedWords.length > 0 && dominantSpeaker !== this.currentSpeakerNum) {
+                    await this.flushAccumulatedSentence();
+                  }
+                  this.currentSpeakerNum = dominantSpeaker;
+                }
               }
 
               // Append finalized phrase slice to accumulator
@@ -243,12 +273,13 @@ export class DeepgramLiveWebSocket {
         this.targetLang
       );
 
+      const speakerId = `speaker_${speakerNum + 1}`;
       this.onSegment({
-        speakerId: 'speaker_1',
+        speakerId,
         speakerLabel:
           speakerNum === 0
-            ? 'Pastor (Pulpit PA)'
-            : `Speaker ${speakerNum + 1} (Audience/Floor)`,
+            ? 'Speaker 1'
+            : `Speaker ${speakerNum + 1}`,
         sourceLanguageCode: detectedLang,
         sourceLanguageName:
           SUPPORTED_LANGUAGES.find((l) => l.code === detectedLang)?.name ||
@@ -284,11 +315,38 @@ export class DeepgramLiveWebSocket {
     }
   }
 
+  public isConnected(): boolean {
+    return Boolean(this.socket && this.socket.readyState === WebSocket.OPEN);
+  }
+
   public setLanguages(sourceLang: string, targetLang: string, customGlossary?: string[]): void {
     this.sourceLang = sourceLang;
     this.targetLang = targetLang;
     if (customGlossary !== undefined) {
       this.customChurchGlossary = customGlossary;
+    }
+  }
+
+  public async reconnectWithLanguage(
+    sourceLang: string,
+    targetLang: string,
+    customGlossary?: string[]
+  ): Promise<void> {
+    this.setLanguages(sourceLang, targetLang, customGlossary);
+    this.stopKeepAlive();
+    await this.flushAccumulatedSentence();
+    this.isReconnecting = true;
+    if (this.socket) {
+      try {
+        this.socket.onclose = null;
+        this.socket.close();
+      } catch {}
+      this.socket = null;
+    }
+    try {
+      await this.connect();
+    } finally {
+      this.isReconnecting = false;
     }
   }
 

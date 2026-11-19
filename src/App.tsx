@@ -318,13 +318,19 @@ export function App() {
     localStorage.setItem(STORAGE_KEY_SOURCE_LANG, newLangCode);
     speaker1LangRef.current = newLangCode;
 
-    // If live WebSocket is running, update its language configuration or reconnect
-    if (deepgramWsRef.current) {
-      deepgramWsRef.current.setLanguages(newLangCode, targetLangRef.current);
-    }
-    if (isListening && audioEngineRef.current) {
-      // Re-trigger live mic session to immediately connect to the chosen language model
-      void toggleLiveMicrophone().then(() => toggleLiveMicrophone());
+    // If live WebSocket is running, seamlessly reconnect with the new language (raw PCM needs no mic restart)
+    if (deepgramWsRef.current && isListening) {
+      void deepgramWsRef.current.reconnectWithLanguage(
+        newLangCode,
+        targetLangRef.current,
+        customChurchGlossaryRef.current
+      );
+    } else if (deepgramWsRef.current) {
+      deepgramWsRef.current.setLanguages(
+        newLangCode,
+        targetLangRef.current,
+        customChurchGlossaryRef.current
+      );
     }
 
     const langMeta = SUPPORTED_LANGUAGES.find((l) => l.code === newLangCode);
@@ -513,11 +519,14 @@ export function App() {
       }
 
       setSpeakers(currentSpeakers);
-      setActiveSpeakerId(params.speakerId);
+      if (!speaker.isIgnored) {
+        setActiveSpeakerId(params.speakerId);
+      }
 
       const mode = voiceViewModeRef.current;
       const isMutedByLock =
-        mode !== 'all' && mode !== 'split' && mode !== params.speakerId;
+        speaker.isIgnored ||
+        (mode !== 'all' && mode !== 'split' && mode !== 'auto' && mode !== params.speakerId);
 
       const newSegment: TranslationSegment = {
         id: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -581,6 +590,11 @@ export function App() {
 
   const handleAudioChunkReady = useCallback(
     async (audioBlob: Blob, mimeType: string, durationMs: number) => {
+      // Never run REST chunk pipeline while Live WebSocket is connected (prevents duplicate translations & audio overlap)
+      if (deepgramWsRef.current?.isConnected()) {
+        return;
+      }
+
       const activeProvider = aiProviderRef.current;
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;
@@ -923,14 +937,16 @@ export function App() {
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
         },
-        (sliceBlob) => {
-          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
+        (pcmBuffer) => {
+          // Instant 16kHz raw linear16 PCM frames for Deepgram Live WebSocket
           if (deepgramWsRef.current) {
-            deepgramWsRef.current.sendAudio(sliceBlob);
+            deepgramWsRef.current.sendAudio(pcmBuffer);
           }
         }
       );
-      await engine.start(audioConfig.audioSource || 'mic');
+      // Only enable 3.5s segmented REST recorder if Live WebSocket is NOT connected
+      const enableRestFallback = !deepgramWsRef.current;
+      await engine.start(audioConfig.audioSource || 'mic', enableRestFallback);
       audioEngineRef.current = engine;
 
       setIsListening(true);
@@ -968,15 +984,26 @@ export function App() {
     }
   };
 
+  const toggleIgnoreSpeaker = useCallback((speakerId: string) => {
+    setSpeakers((prev) =>
+      prev.map((s) =>
+        s.id === speakerId ? { ...s, isIgnored: !s.isIgnored } : s
+      )
+    );
+    speechEngineRef.current?.stopAll();
+  }, []);
+
   const visibleSegments = useMemo(() => {
+    const ignoredIds = new Set(speakers.filter((s) => s.isIgnored).map((s) => s.id));
+    const activeSegments = segments.filter((s) => !ignoredIds.has(s.speakerId));
     if (voiceViewMode === 'all' || voiceViewMode === 'split') {
-      return segments;
+      return activeSegments;
     }
     if (voiceViewMode === 'auto') {
-      return segments.filter((s) => s.speakerId === activeSpeakerId);
+      return activeSegments.filter((s) => s.speakerId === activeSpeakerId);
     }
-    return segments.filter((s) => s.speakerId === voiceViewMode);
-  }, [segments, voiceViewMode, activeSpeakerId]);
+    return activeSegments.filter((s) => s.speakerId === voiceViewMode);
+  }, [segments, speakers, voiceViewMode, activeSpeakerId]);
 
   const textSizeClass =
     fontSizeScale === 'xl'
@@ -1421,13 +1448,18 @@ export function App() {
                 onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
               >
-                <option value="auto">✨ Auto-Detect</option>
+                <option value="auto">✨ Auto-Detect (EN/EU)</option>
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <option key={lang.code} value={lang.code}>
                     {lang.flag} {lang.name}
                   </option>
                 ))}
               </select>
+              {speaker1SourceLang === 'auto' && (
+                <p className="text-[9px] text-amber-400/90 mt-1 leading-tight">
+                  Tip: Pick Korean, Tagalog, or Chinese directly for best accuracy.
+                </p>
+              )}
             </div>
 
             <div>
@@ -1502,28 +1534,53 @@ export function App() {
                     : (spk.detectedLanguageCode || '').toUpperCase();
 
                 return (
-                  <button
+                  <div
                     key={spk.id}
-                    type="button"
-                    onClick={() => {
-                      setVoiceViewMode(isSelected ? 'all' : spk.id);
-                      speechEngineRef.current?.stopAll();
-                    }}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                      isSelected
+                    className={`rounded-full text-[11px] font-semibold shrink-0 flex items-center transition ${
+                      spk.isIgnored
+                        ? 'bg-slate-900/50 text-slate-500 border border-slate-800/60 line-through opacity-70'
+                        : isSelected
                         ? 'bg-sky-500 text-slate-950'
                         : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        isActiveSpeaking && isListening ? 'animate-pulse ring-2 ring-sky-400' : ''
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (spk.isIgnored) {
+                          toggleIgnoreSpeaker(spk.id);
+                        }
+                        setVoiceViewMode(isSelected ? 'all' : spk.id);
+                        speechEngineRef.current?.stopAll();
+                      }}
+                      className="pl-2.5 pr-1.5 py-1 flex items-center gap-1 cursor-pointer"
+                      title={`Lock & isolate ${spk.label}`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isActiveSpeaking && isListening && !spk.isIgnored ? 'animate-pulse ring-2 ring-sky-400' : ''
+                        }`}
+                        style={{ backgroundColor: spk.isIgnored ? '#64748b' : spk.accentColor }}
+                      />
+                      {spk.label} ({displayCode})
+                      {isSelected && !spk.isIgnored && <Check className="w-3 h-3" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleIgnoreSpeaker(spk.id);
+                      }}
+                      className={`pr-2 pl-0.5 py-1 cursor-pointer transition ${
+                        isSelected && !spk.isIgnored
+                          ? 'text-slate-900/70 hover:text-slate-950'
+                          : 'text-slate-500 hover:text-rose-400'
                       }`}
-                      style={{ backgroundColor: spk.accentColor }}
-                    />
-                    {spk.label} ({displayCode})
-                    {isSelected && <Check className="w-3 h-3" />}
-                  </button>
+                      title={spk.isIgnored ? `Unmute ${spk.label}` : `Mute / ignore ${spk.label}`}
+                    >
+                      <VolumeX className="w-3 h-3" />
+                    </button>
+                  </div>
                 );
               })}
 

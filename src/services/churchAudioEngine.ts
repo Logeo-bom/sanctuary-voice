@@ -178,11 +178,11 @@ export class ChurchAudioEngine {
 
     // 5. Dynamic Range Compressor (levels quiet prayers vs loud preaching)
     this.compressorNode = this.audioContext.createDynamicsCompressor();
-    this.compressorNode.threshold.value = this.config.dynamicCompressorEnabled ? -30 : -6;
-    this.compressorNode.knee.value = 20;
-    this.compressorNode.ratio.value = this.config.dynamicCompressorEnabled ? 6 : 1.5;
-    this.compressorNode.attack.value = 0.004;
-    this.compressorNode.release.value = 0.22;
+    this.compressorNode.threshold.value = this.config.dynamicCompressorEnabled ? -24 : -6;
+    this.compressorNode.knee.value = 15;
+    this.compressorNode.ratio.value = this.config.dynamicCompressorEnabled ? 4 : 1.5;
+    this.compressorNode.attack.value = 0.005;
+    this.compressorNode.release.value = 0.15;
 
     // 6. Analyser for live dB meter & vocal formant detection
     this.analyserNode = this.audioContext.createAnalyser();

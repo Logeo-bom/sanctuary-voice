@@ -720,11 +720,6 @@ export function App() {
 
   const handleAudioChunkReady = useCallback(
     async (audioBlob: Blob, mimeType: string, durationMs: number) => {
-      // Never run REST chunk pipeline while Live WebSocket is connected (prevents duplicate translations & audio overlap)
-      if (deepgramWsRef.current?.isConnected()) {
-        return;
-      }
-
       const activeProvider = aiProviderRef.current;
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;

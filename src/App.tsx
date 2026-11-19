@@ -451,19 +451,16 @@ export function App() {
     localStorage.setItem(STORAGE_KEY_SOURCE_LANG, newLangCode);
     speaker1LangRef.current = newLangCode;
 
-    // If live WebSocket is running, seamlessly reconnect with the new language (raw PCM needs no mic restart)
-    if (deepgramWsRef.current && isListening) {
-      void deepgramWsRef.current.reconnectWithLanguage(
-        newLangCode,
-        targetLangRef.current,
-        customChurchGlossaryRef.current
-      );
-    } else if (deepgramWsRef.current) {
+    // If live WebSocket is running, restart listening with the new language
+    if (deepgramWsRef.current) {
       deepgramWsRef.current.setLanguages(
         newLangCode,
         targetLangRef.current,
         customChurchGlossaryRef.current
       );
+    }
+    if (isListening && audioEngineRef.current) {
+      void toggleLiveMicrophone().then(() => toggleLiveMicrophone());
     }
 
     const langMeta = SUPPORTED_LANGUAGES.find((l) => l.code === newLangCode);
@@ -1070,16 +1067,14 @@ export function App() {
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
         },
-        (pcmBuffer) => {
-          // Instant 16kHz raw linear16 PCM frames for Deepgram Live WebSocket
+        (sliceBlob) => {
+          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
           if (deepgramWsRef.current) {
-            deepgramWsRef.current.sendAudio(pcmBuffer);
+            deepgramWsRef.current.sendAudio(sliceBlob);
           }
         }
       );
-      // Only enable 3.5s segmented REST recorder if Live WebSocket is NOT connected
-      const enableRestFallback = !deepgramWsRef.current;
-      await engine.start(audioConfig.audioSource || 'mic', enableRestFallback);
+      await engine.start(audioConfig.audioSource || 'mic');
       audioEngineRef.current = engine;
 
       setIsListening(true);

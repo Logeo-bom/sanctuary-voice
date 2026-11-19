@@ -12,6 +12,7 @@ import {
   Mic,
   BookMarked,
   Plus,
+  ArrowLeft,
 } from 'lucide-react';
 import type {
   AudioProcessingConfig,
@@ -80,17 +81,30 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-5 sm:p-6 space-y-6 shadow-2xl my-8">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-sky-400" />
-            <h2 className="text-base font-bold text-slate-100">
-              AI Engines, Earphone Voice &amp; Token Credits
-            </h2>
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 transition flex items-center gap-1 text-xs font-semibold shrink-0 cursor-pointer"
+              title="Go back to Home Screen"
+            >
+              <ArrowLeft className="w-4 h-4 text-sky-400" />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+            <div className="h-4 w-px bg-slate-800 shrink-0" />
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Sparkles className="w-4 h-4 text-sky-400 shrink-0" />
+              <h2 className="text-sm sm:text-base font-bold text-slate-100 truncate">
+                AI Engines, Earphone Voice &amp; Token Credits
+              </h2>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition cursor-pointer shrink-0"
+            title="Close and return to Home Screen"
           >
             <X className="w-4 h-4" />
           </button>
@@ -431,6 +445,18 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
               </div>
             </button>
           </div>
+        </div>
+
+        {/* Footer Back Button */}
+        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          >
+            <ArrowLeft className="w-4 h-4 text-sky-400" />
+            Back to Home Screen
+          </button>
         </div>
       </div>
     </div>

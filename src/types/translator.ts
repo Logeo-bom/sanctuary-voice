@@ -33,6 +33,7 @@ export interface TranslationSegment {
   originalText: string;
   translatedText: string;
   targetLanguageCode: string;
+  provider?: 'deepl' | 'gemini' | 'google-neural';
   isFilteredOut: boolean;
   backgroundNoiseNote?: string;
   latencyMs: number;

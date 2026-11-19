@@ -350,6 +350,7 @@ export function App() {
       detectedDialect?: string;
       originalText: string;
       translatedText: string;
+      provider?: 'deepl' | 'gemini' | 'google-neural';
       backgroundNoiseNote?: string;
       latencyMs: number;
     }) => {
@@ -431,6 +432,7 @@ export function App() {
         originalText: params.originalText,
         translatedText: params.translatedText,
         targetLanguageCode: targetLangRef.current,
+        provider: params.provider,
         isFilteredOut: isMutedByLock,
         backgroundNoiseNote: params.backgroundNoiseNote,
         latencyMs: params.latencyMs,
@@ -521,6 +523,7 @@ export function App() {
                 detectedDialect: utt.detectedDialect,
                 originalText: utt.originalText,
                 translatedText: utt.translatedText,
+                provider: 'deepl',
                 backgroundNoiseNote: utt.backgroundNoiseNote,
                 latencyMs: utt.latencyMs,
               });
@@ -586,6 +589,7 @@ export function App() {
                   detectedDialect: utt.detectedDialect,
                   originalText: utt.originalText,
                   translatedText: utt.translatedText,
+                  provider: 'gemini',
                   backgroundNoiseNote: utt.backgroundNoiseNote,
                   latencyMs: geminiResult.latencyMs,
                 });
@@ -757,6 +761,7 @@ export function App() {
                 sourceLanguageName: seg.sourceLanguageName,
                 originalText: seg.originalText,
                 translatedText: seg.translatedText,
+                provider: seg.provider,
                 latencyMs: seg.latencyMs,
               });
             },

@@ -8,6 +8,7 @@ export interface DeepgramLiveSegment {
   sourceLanguageName: string;
   originalText: string;
   translatedText: string;
+  provider?: 'deepl' | 'gemini' | 'google-neural';
   isFinal: boolean;
   latencyMs: number;
 }
@@ -233,7 +234,7 @@ export class DeepgramLiveWebSocket {
 
     try {
       // Direct, word-for-word translation of the complete sentence
-      const { translatedText, detectedLang } = await this.translateAndDetect(
+      const { translatedText, detectedLang, provider } = await this.translateAndDetect(
         fullOriginalSentence,
         this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
         this.targetLang
@@ -251,6 +252,7 @@ export class DeepgramLiveWebSocket {
           detectedLang.toUpperCase(),
         originalText: fullOriginalSentence,
         translatedText,
+        provider,
         isFinal: true,
         latencyMs: 250,
       });
@@ -335,9 +337,9 @@ export class DeepgramLiveWebSocket {
     text: string,
     sourceLang: string,
     targetLang: string
-  ): Promise<{ translatedText: string; detectedLang: string }> {
+  ): Promise<{ translatedText: string; detectedLang: string; provider?: 'deepl' | 'gemini' | 'google-neural' }> {
     try {
-      // 1. Try our own serverless proxy endpoint first to bypass browser CORS restrictions
+      // 1. Try our own serverless proxy endpoint first (DeepL API with Google Cloud Fallback)
       const serverlessRes = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -354,6 +356,7 @@ export class DeepgramLiveWebSocket {
           return {
             translatedText: data.translatedText,
             detectedLang: data.detectedLang || (sourceLang !== 'auto' ? sourceLang : 'en'),
+            provider: data.provider || 'deepl',
           };
         }
       }
@@ -376,7 +379,7 @@ export class DeepgramLiveWebSocket {
         translatedText = data[0].map((part: [string]) => part[0]).join('');
       }
       const detectedLang = typeof data?.[2] === 'string' ? data[2] : (sourceLang !== 'auto' ? sourceLang : 'en');
-      return { translatedText, detectedLang };
+      return { translatedText, detectedLang, provider: 'google-neural' };
     } catch {
       return { translatedText: text, detectedLang: sourceLang !== 'auto' ? sourceLang : 'en' };
     }

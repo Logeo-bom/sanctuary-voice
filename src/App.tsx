@@ -108,7 +108,23 @@ export function App() {
   const [activeSpeakerId, setActiveSpeakerId] = useState<string>('speaker_1');
   const [displayStyle, setDisplayStyle] = useState<'continuous' | 'cards' | 'live'>('continuous');
   const [showOriginalText, setShowOriginalText] = useState<boolean>(true);
-  const [fontSizeScale, setFontSizeScale] = useState<'normal' | 'large' | 'xl'>('normal');
+  const [fontSizeScale, setFontSizeScale] = useState<'normal' | 'large' | 'xl'>(() => {
+    try {
+      const saved = localStorage.getItem('sanctuary_font_size');
+      if (saved === 'normal' || saved === 'large' || saved === 'xl') return saved;
+    } catch {}
+    return 'large';
+  });
+
+  const handleCycleFontSize = useCallback(() => {
+    setFontSizeScale((prev) => {
+      const next = prev === 'normal' ? 'large' : prev === 'large' ? 'xl' : 'normal';
+      try {
+        localStorage.setItem('sanctuary_font_size', next);
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Simple 1-tap Back-Row Boost: 'normal' (+2dB) | 'pew' (+12dB) | 'back-row' (+22dB)
   const [boostPreset, setBoostPreset] = useState<'normal' | 'pew' | 'back-row'>('pew');
@@ -1902,7 +1918,7 @@ export function App() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setShowOriginalText((prev) => !prev)}
@@ -1916,22 +1932,18 @@ export function App() {
               {showOriginalText ? 'Original: ON' : 'Original: OFF'}
             </button>
 
-            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-md p-0.5 gap-0.5">
-              {(['normal', 'large', 'xl'] as const).map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setFontSizeScale(sz)}
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase transition cursor-pointer ${
-                    fontSizeScale === sz
-                      ? 'bg-slate-800 text-sky-400'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {sz === 'normal' ? 'A' : sz === 'large' ? 'A+' : 'A++'}
-                </button>
-              ))}
-            </div>
+            {/* Single clean 1-tap font size cycle pill */}
+            <button
+              type="button"
+              onClick={handleCycleFontSize}
+              className="text-[10px] px-2 py-0.5 rounded-md border bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300 font-bold transition cursor-pointer flex items-center gap-1 active:scale-95"
+              title="Cycle font size (Normal → Large → XL)"
+            >
+              <span className="text-[11px] text-sky-400">Aa</span>
+              <span className="text-[9px] text-slate-400 uppercase font-semibold">
+                {fontSizeScale === 'normal' ? 'Normal' : fontSizeScale === 'large' ? 'Large' : 'XL'}
+              </span>
+            </button>
           </div>
         </div>
 

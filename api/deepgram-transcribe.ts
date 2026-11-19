@@ -33,6 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const sourceLang = (req.headers['x-source-lang'] as string) || 'auto';
     const targetLang = (req.headers['x-target-lang'] as string) || 'en';
+    const customGlossaryRaw = (req.headers['x-custom-glossary'] as string) || '';
     const contentType = req.headers['content-type'] || 'audio/webm';
 
     // Collect binary stream
@@ -55,7 +56,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const modelName = sourceLang === 'auto' ? 'nova-3' : 'nova-2';
     const autoLangParam = sourceLang === 'auto' ? '&language=multi' : langQuery;
 
-    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true${autoLangParam}`;
+    // Parse custom church keyterms if passed
+    let extraParams = '';
+    if (customGlossaryRaw) {
+      try {
+        const terms = decodeURIComponent(customGlossaryRaw).split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+        if (modelName === 'nova-3') {
+          extraParams = terms.map((t) => `&keyterm=${encodeURIComponent(t)}`).join('');
+        } else {
+          extraParams = terms.map((t) => `&keywords=${encodeURIComponent(t)}:2`).join('');
+        }
+      } catch {}
+    }
+
+    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true${autoLangParam}${extraParams}`;
 
     const dgResponse = await fetch(deepgramUrl, {
       method: 'POST',

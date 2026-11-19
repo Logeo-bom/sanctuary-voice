@@ -10,6 +10,8 @@ import {
   Zap,
   Sliders,
   Mic,
+  BookMarked,
+  Plus,
 } from 'lucide-react';
 import type {
   AudioProcessingConfig,
@@ -34,6 +36,9 @@ interface SettingsAndWalletModalProps {
   onChangeSpeechConfig: (partial: Partial<SpeechOutputConfig>) => void;
   wallet: PrepaidAccountState;
   onTopUpMinutes: (minutesToAdd: number, tierName: string) => void;
+  customGlossary: string[];
+  onAddGlossaryTerm: (term: string) => void;
+  onRemoveGlossaryTerm: (term: string) => void;
 }
 
 export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
@@ -47,8 +52,20 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   onChangeSpeechConfig,
   wallet,
   onTopUpMinutes,
+  customGlossary,
+  onAddGlossaryTerm,
+  onRemoveGlossaryTerm,
 }) => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [newTermInput, setNewTermInput] = useState<string>('');
+
+  const handleAddTerm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTermInput.trim()) {
+      onAddGlossaryTerm(newTermInput.trim());
+      setNewTermInput('');
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -218,7 +235,60 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </p>
         </div>
 
-        {/* 4. Priority 2: Earphone Speech-to-Speech (TTS) Configuration */}
+        {/* 4. Live Church Glossary & Custom Keyterm Boosting (Feature 2) */}
+        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <BookMarked className="w-4 h-4 text-amber-400" />
+              Church Glossary &amp; Pastoral Keyterms
+            </span>
+            <span className="text-[10px] text-amber-400 font-medium bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+              Speech Recognition Boost Active
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-tight">
+            Add pastor names, missionary ministries, or theological terms (e.g. <em>Pastor David, Melchizedek, Golgotha</em>). Deepgram prioritizes these words with 100% accuracy.
+          </p>
+
+          <form onSubmit={handleAddTerm} className="flex gap-2">
+            <input
+              type="text"
+              value={newTermInput}
+              onChange={(e) => setNewTermInput(e.target.value)}
+              placeholder="e.g. Pastor Velasquez, Bethel, Maranatha"
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1 transition cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </form>
+
+          {customGlossary.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {customGlossary.map((term) => (
+                <span
+                  key={term}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-medium"
+                >
+                  {term}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveGlossaryTerm(term)}
+                    className="hover:text-amber-100 cursor-pointer ml-0.5"
+                    title="Remove keyword"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 5. Priority 2: Earphone Speech-to-Speech (TTS) Configuration */}
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

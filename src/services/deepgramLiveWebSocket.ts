@@ -22,6 +22,7 @@ export class DeepgramLiveWebSocket {
   private apiKey: string;
   private sourceLang: string;
   private targetLang: string;
+  private customChurchGlossary: string[] = [];
   private onSegment: OnTranscriptCallback;
   private onInterim?: OnInterimCallback;
   private onError: OnErrorCallback;
@@ -43,11 +44,13 @@ export class DeepgramLiveWebSocket {
     targetLang: string,
     onSegment: OnTranscriptCallback,
     onError: OnErrorCallback,
-    onInterim?: OnInterimCallback
+    onInterim?: OnInterimCallback,
+    customChurchGlossary: string[] = []
   ) {
     this.apiKey = apiKey.trim();
     this.sourceLang = sourceLang;
     this.targetLang = targetLang;
+    this.customChurchGlossary = customChurchGlossary || [];
     this.onSegment = onSegment;
     this.onError = onError;
     this.onInterim = onInterim;
@@ -97,7 +100,7 @@ export class DeepgramLiveWebSocket {
         const isAuto = !this.sourceLang || this.sourceLang === 'auto';
         
         let wsUrl: string;
-        const boostedWords = getKeywordsForLanguage(this.sourceLang);
+        const boostedWords = getKeywordsForLanguage(this.sourceLang, this.customChurchGlossary);
 
         if (isAuto) {
           // Nova-3 multi-language auto-detection
@@ -281,9 +284,12 @@ export class DeepgramLiveWebSocket {
     }
   }
 
-  public setLanguages(sourceLang: string, targetLang: string): void {
+  public setLanguages(sourceLang: string, targetLang: string, customGlossary?: string[]): void {
     this.sourceLang = sourceLang;
     this.targetLang = targetLang;
+    if (customGlossary !== undefined) {
+      this.customChurchGlossary = customGlossary;
+    }
   }
 
   public close(): void {

@@ -32,10 +32,15 @@ export const THEOLOGICAL_KEYWORDS: Record<string, string[]> = {
   ]
 };
 
-export function getKeywordsForLanguage(langCode: string): string[] {
+export function getKeywordsForLanguage(langCode: string, customTerms: string[] = []): string[] {
   const code = (langCode || 'en').toLowerCase().split('-')[0];
   const specific = THEOLOGICAL_KEYWORDS[code] || [];
   const english = THEOLOGICAL_KEYWORDS.en;
-  // Combine language-specific + English church words
-  return Array.from(new Set([...specific, ...english])).slice(0, 35);
+  // Clean custom terms from user
+  const cleanedCustom = (customTerms || [])
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  // Combine custom church terms (highest priority) + language-specific + English church words
+  return Array.from(new Set([...cleanedCustom, ...specific, ...english])).slice(0, 45);
 }

@@ -54,6 +54,7 @@ const STORAGE_KEY_AI_PROVIDER = 'sanctuary_voice_ai_provider_v1';
 const STORAGE_KEY_SPEECH_CONFIG = 'sanctuary_voice_speech_config_v1';
 const STORAGE_KEY_SOURCE_LANG = 'sanctuary_voice_source_lang_v1';
 const STORAGE_KEY_TARGET_LANG = 'sanctuary_voice_target_lang_v1';
+const STORAGE_KEY_CHURCH_GLOSSARY = 'sanctuary_voice_church_glossary_v1';
 
 export function App() {
   const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>(() => {
@@ -174,6 +175,14 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [activeScripture, setActiveScripture] = useState<ScriptureData | null>(null);
   const [isScriptureExpanded, setIsScriptureExpanded] = useState<boolean>(false);
+  const [customChurchGlossary, setCustomChurchGlossary] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CHURCH_GLOSSARY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return ['Pastor Velasquez', 'Hallelujah', 'Maranatha', 'Sanctuary'];
+  });
+  const customChurchGlossaryRef = useRef<string[]>(customChurchGlossary);
 
   const consecutiveFailuresRef = useRef<number>(0);
   const finishingQueueTimerRef = useRef<number | null>(null);
@@ -224,6 +233,10 @@ export function App() {
   useEffect(() => {
     segmentsRef.current = segments;
   }, [segments]);
+
+  useEffect(() => {
+    customChurchGlossaryRef.current = customChurchGlossary;
+  }, [customChurchGlossary]);
 
   useEffect(() => {
     speechEngineRef.current = new EarphoneSpeechEngine(speechConfig);
@@ -297,6 +310,34 @@ export function App() {
         targetLanguageCode: newTargetCode,
       }))
     );
+  };
+
+  const handleAddGlossaryTerm = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    setCustomChurchGlossary((prev) => {
+      if (prev.includes(trimmed)) return prev;
+      const updated = [...prev, trimmed];
+      localStorage.setItem(STORAGE_KEY_CHURCH_GLOSSARY, JSON.stringify(updated));
+      return updated;
+    });
+    // Dynamically notify live WebSocket if running
+    if (deepgramWsRef.current) {
+      deepgramWsRef.current.setLanguages(speaker1SourceLang, targetLangCode, [...customChurchGlossary, trimmed]);
+    }
+  };
+
+  const handleRemoveGlossaryTerm = (term: string) => {
+    setCustomChurchGlossary((prev) => {
+      const updated = prev.filter((t) => t !== term);
+      localStorage.setItem(STORAGE_KEY_CHURCH_GLOSSARY, JSON.stringify(updated));
+      return updated;
+    });
+    // Dynamically notify live WebSocket if running
+    if (deepgramWsRef.current) {
+      const updated = customChurchGlossary.filter((t) => t !== term);
+      deepgramWsRef.current.setLanguages(speaker1SourceLang, targetLangCode, updated);
+    }
   };
 
   const handleSaveApiKey = (newKey: string) => {
@@ -500,6 +541,7 @@ export function App() {
             targetLanguageCode: targetLangRef.current,
             deepgramApiKey: currentDgKey || undefined,
             sourceLanguageCode: speaker1LangRef.current,
+            customChurchGlossary: customChurchGlossaryRef.current,
           });
 
           if (result.utterances && result.utterances.length > 0) {
@@ -770,7 +812,8 @@ export function App() {
             },
             (interim) => {
               setLiveInterimText(interim);
-            }
+            },
+            customChurchGlossaryRef.current
           );
 
           await wsClient.connect();
@@ -1937,6 +1980,9 @@ export function App() {
               activeTierName: tier,
             }))
           }
+          customGlossary={customChurchGlossary}
+          onAddGlossaryTerm={handleAddGlossaryTerm}
+          onRemoveGlossaryTerm={handleRemoveGlossaryTerm}
         />
       </div>
     </div>

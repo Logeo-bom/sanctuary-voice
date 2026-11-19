@@ -17,15 +17,17 @@ When visiting any church worldwide, a visitor brings their mobile phone, puts ea
 ## 🎯 How Bard's 4 Core Challenges Are Solved
 
 ### 1. Multiple Voices & Languages on Stage
-* **The Problem:** In international or bilingual services, Speaker 1 preaches in Language A (e.g., English) and an on-stage Interpreter translates into Language B (e.g., French). Standard translation tools merge them or translate the already-translated speech.
+* **The Problem:** In international or bilingual services, Speaker 1 preaches in Language A (e.g., English or Korean) and an on-stage Interpreter translates into Language B (e.g., French), while floor or pew noise can interfere. Standard translation tools merge them or translate the already-translated speech.
 * **Our Solution:**
-  * **Speaker Diarization:** Distinguishes Speaker 1 from on-stage Translator 2.
-  * **One-Tap Voice Locking:** Tap **Speaker 1** to mute the stage interpreter in your earphones so you only hear the original message translated directly.
+  * **Real-Time Speaker Diarization (Majority-Vote):** Separates distinct stage voices (`Speaker 1`, `Speaker 2`, `Speaker N`) using word-level majority-vote speaker detection across every live phrase.
+  * **One-Tap Voice Locking & Speaker Mute:** Tap any speaker pill to isolate only that voice in your earphones, use **Auto-Follow** to track the active stage speaker, or tap the **Mute (`VolumeX`)** icon on any speaker pill to silence floor/background voices permanently.
   * **2 Windows Mode:** Splits the screen into two independent simultaneous feeds (Top: Preacher, Bottom: Interpreter).
 
-### 2. Low Input, Weak Loudspeakers & OS Noise Cancellation
-* **The Problem:** Sitting in distant church benches (pews) with weak or reverberant loudspeakers causes mobile operating systems to treat stage speech as "background noise" and mute it.
+### 2. Low Input, Weak Loudspeakers, Bluetooth Earphones & OS Noise Cancellation
+* **The Problem:** Sitting in distant church pews with weak PA loudspeakers causes mobile OS noise cancellation to mute stage speech. Worse, plugging in wired earphones or connecting Bluetooth earbuds normally switches the microphone input to the earbud mic (which cancels out the pastor's PA speakers).
 * **Our Solution:**
+  * **Bluetooth & Earphone Split Audio Routing:** Automatically prefers the **phone's built-in microphone** for capturing the pulpit PA while routing translated speech to **Bluetooth/wired earphones** in full A2DP quality (`AudioManager.MODE_NORMAL` on Android + live `devicechange` re-locking in the browser).
+  * **Raw 16kHz Mono PCM Streaming:** Streams headerless `linear16` PCM (~85ms frames) directly over WebSocket—eliminating WebM container dropouts on reconnects and enabling seamless mid-sermon language switching.
   * **OS Noise Gate Bypass:** Disables native `noiseSuppression`, `echoCancellation`, and `autoGainControl` so distant stage acoustics are preserved.
   * **3-Stage Distance Pre-Amp Boost:**
     * `+2dB Front Row` (Near the stage / high sound pressure)
@@ -33,17 +35,19 @@ When visiting any church worldwide, a visitor brings their mobile phone, puts ea
     * `+22dB Back Row Max` (12.5x amplification with dynamic compression for distant pews / weak PA systems)
   * **6:1 Dynamic Range Compressor:** Automatically balances soft prayers and loud preaching.
 
-### 3. Regional Dialects & Theological Context
-* **The Problem:** Swiss French is distinct from Canadian French; regional accents and biblical terms ("grace", "anointing", "Romans 8") trip up generic translation models.
+### 3. Regional Dialects, Theological Context & Custom Church Glossary
+* **The Problem:** Regional accents, pastor names, church names, and biblical terms ("grace", "anointing", "Maranatha", "Romans 8") trip up generic speech and translation models.
 * **Our Solution:**
-  * Context-aware translation models (Google Gemini & DeepL Neural Machine Translation) handle nuanced regional dialects, compound syntactic clauses, and theological terminology smoothly across 12+ supported languages.
+  * **DeepL Neural Translation (~150ms) + Gemini / Google Fallback:** High-fidelity biblical and literary translation via DeepL API with automatic failover to Google Neural and Gemini 2.5 Flash.
+  * **Live Church Glossary & Custom Keyterm Boosting:** Manage custom pastor names, ministry names, and biblical vocabulary inside Settings—automatically injected into Deepgram Nova-3 (`keyterm`) and Nova-2 (`keywords`) in real time.
 
-### 4. Background Worship Synth Pads & Organ Noise
-* **The Problem:** Continuous ambient worship keys trick Voice Activity Detection (VAD) into thinking a sentence never ends.
+### 4. Background Worship Synth Pads, Room Noise & Offline Sanctuaries
+* **The Problem:** Continuous ambient worship keys and room chatter trigger false transcriptions, while rural or missionary sanctuaries often lose internet mid-service.
 * **Our Solution:**
-  * **90Hz High-Pass Filter:** Removes stage rumble, foot traffic, and HVAC hum.
-  * **280Hz Synth Pad Ducking EQ:** Attenuates keyboard mud while boosting 2.4kHz vocal consonant clarity.
-  * **Vocal Formant Gate:** Evaluates the 300Hz–3.4kHz human voice band so musical pads alone never trigger false translations.
+  * **90Hz High-Pass Filter & 280Hz Synth Pad Ducking EQ:** Cuts stage rumble and keyboard mud while boosting 2.4kHz vocal consonant clarity.
+  * **Dynamic Vocal Formant Gate (`300Hz–3400Hz`):** Dynamically computes FFT bins from the device's actual hardware sample rate (`44.1kHz`/`48kHz`) so musical pads alone never trigger false voice detection.
+  * **Confidence & Hallucination Filter:** Drops low-confidence room noise and music artifacts before translation.
+  * **Offline Sanctuary Edge Fallback:** Automatically detects network loss and switches to an on-device speech & offline theological vocabulary engine so rural/missionary sanctuaries keep running without internet.
 
 ---
 
@@ -71,10 +75,11 @@ The app is built inside a clean, thumb-friendly Android phone interface:
 | **Capacitor 7** | Mobile Native Runtime | Required for the "Android-first" mandate while enabling instant web testing for reviewers. | Unified codebase for Web + Android APK; native hardware bridge for `RECORD_AUDIO` and `FLAG_KEEP_SCREEN_ON`. |
 | **React 19 + TypeScript** | Frontend UI Framework | Real-time state management for continuous audio streams, speaker tabs, and decibel meters. | Strict type safety for translation segments and DSP states; predictable component transitions; high modularity. |
 | **Vite 8** | Bundler & Dev Server | Fast iteration and sub-second builds essential for a 1-day engineering timebox. | Sub-second Hot Module Replacement (HMR); `--host` network flag for instant physical Android Wi-Fi testing. |
-| **Web Audio API** | Acoustic DSP & Audio Graph | Native mobile audio APIs choke on distant loudspeakers due to cell-phone noise cancellation algorithms. | Hardware OS noise-gate bypass; custom `+2dB` to `+22dB` pre-amp gain; `90Hz` rumble filter; `280Hz` synth ducking filter. |
-| **Google Gemini 2.5 Flash** | Multimodal Audio Translation | Direct multimodal audio processing for sermon contextual synthesis. | Native speaker diarization (separates Speaker 1 and Translator 2); dialect and theological terminology awareness; continuous sentence resolution. |
-| **DeepL Neural Translation** | Precision Literary & Theological NMT | Benchmark gold standard for nuanced, high-fidelity biblical and linguistic translation. | Preserves complex grammatical clause structures across European, Asian, and Latin American languages without losing nuance. |
-| **Deepgram Nova-2** | Real-Time Speech Recognition | Low-latency live speech streaming (~300ms) with dual-speaker stage diarization. | Sub-second simultaneous transcription for real-time live earphone streaming in sanctuary seating. |
+| **Web Audio API (16kHz PCM)** | Acoustic DSP & Raw PCM Streaming | Native mobile audio APIs choke on distant loudspeakers, and WebM MediaRecorder breaks on WebSocket reconnects. | Hardware OS noise-gate bypass; custom `+2dB` to `+22dB` pre-amp gain; `90Hz` rumble filter; `280Hz` synth ducking; built-in phone mic auto-selection; raw 16kHz `linear16` PCM streaming. |
+| **Deepgram Nova-3 / Nova-2** | Real-Time Speech Recognition | Sub-second live streaming (~300ms) with multi-speaker stage diarization and live custom keyterm boosting. | Majority-vote speaker separation; confidence/hallucination gating; seamless mid-sermon language switching. |
+| **DeepL Neural Translation** | Primary Low-Latency NMT (~150ms) | Benchmark gold standard for nuanced, high-fidelity biblical and linguistic translation. | Preserves complex grammatical clause structures across European, Asian, and Latin American languages at ~150ms turnaround. |
+| **Google Gemini 2.5 Flash** | Multimodal Fallback Translation | Direct multimodal audio processing for sermon contextual synthesis when WebSocket/REST fallback is engaged. | Native speaker diarization; dialect and theological terminology awareness; automatic failover safety net. |
+| **Offline Edge Engine** | Zero-Internet Sanctuary Fallback | Rural and missionary churches frequently face unstable or absent Wi-Fi/cellular connections. | Automatic `online`/`offline` detection with on-device speech recognition and built-in multilingual theological dictionary. |
 | **Edge Neural TTS Proxy** | Speech-to-Speech Output | Standard browser/OS voices sound robotic when speaking non-English translations. | Authentic native accents across all 12 languages; pitch preservation (`preservesPitch = true`); zero user configuration. |
 | **Tailwind CSS v4** | UI Styling | Rapid, clean implementation of an Android mockup with zero runtime CSS overhead. | Thumb-first ergonomics; minimal battery consumption on mobile devices; crisp dark-mode sanctuary styling. |
 
@@ -95,7 +100,7 @@ To cover multimodal AI token and cloud streaming costs without complex recurring
 
 ### 3. Backend-Managed API Security
 * **Zero Client-Side Keys Required:** End-users and church attendees do not need to obtain, manage, or input any API keys in the app.
-* **Secure Cloud Proxy:** All speech recognition, multimodal translation, and neural TTS requests route through secure backend serverless endpoints (`/api/gemini-translate`, `/api/deepgram-transcribe`, etc.) configured via environment variables (`GEMINI_API_KEY`, `DEEPGRAM_API_KEY`, etc.).
+* **Secure Cloud Proxy:** All speech recognition, neural translation, and TTS requests route through secure backend serverless endpoints (`/api/deepgram-token`, `/api/translate`, `/api/gemini-translate`, `/api/deepgram-transcribe`) configured via environment variables (`DEEPGRAM_API_KEY`, `DEEPL_API_KEY`, `GEMINI_API_KEY`).
 * **Zero Configuration for Visitors:** Visitors simply open the web app or Android APK and start listening immediately without configuration barriers.
 
 ---

@@ -23,6 +23,7 @@ import {
   Zap,
   BookOpen,
   ArrowLeft,
+  ChevronDown,
 } from 'lucide-react';
 import { App as CapApp } from '@capacitor/app';
 import type {
@@ -102,7 +103,8 @@ export function App() {
   const [segments, setSegments] = useState<TranslationSegment[]>([]);
 
   // Voice filter: 'all' | 'auto' | 'split' | 'speaker_1' | 'speaker_2'
-  const [voiceViewMode, setVoiceViewMode] = useState<string>('all');
+  const [voiceViewMode, setVoiceViewMode] = useState<string>('auto');
+  const [isVoiceDropdownOpen, setIsVoiceDropdownOpen] = useState<boolean>(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState<string>('speaker_1');
   const [displayStyle, setDisplayStyle] = useState<'continuous' | 'cards' | 'live'>('continuous');
   const [showOriginalText, setShowOriginalText] = useState<boolean>(true);
@@ -215,6 +217,11 @@ export function App() {
   const activeScriptureRef = useRef<ScriptureData | null>(activeScripture);
   const isFocusModeRef = useRef<boolean>(isFocusMode);
   const isListeningRef = useRef<boolean>(isListening);
+  const isVoiceDropdownOpenRef = useRef<boolean>(isVoiceDropdownOpen);
+
+  useEffect(() => {
+    isVoiceDropdownOpenRef.current = isVoiceDropdownOpen;
+  }, [isVoiceDropdownOpen]);
 
   useEffect(() => {
     speakersRef.current = speakers;
@@ -285,8 +292,10 @@ export function App() {
 
     const setupCapacitorBackButton = async () => {
       try {
-        const handler = await CapApp.addListener('backButton', ({ canGoBack }) => {
-          if (isSettingsOpenRef.current) {
+        const handler = await CapApp.addListener('backButton', ({ canGoBack }: { canGoBack: boolean }) => {
+          if (isVoiceDropdownOpenRef.current) {
+            setIsVoiceDropdownOpen(false);
+          } else if (isSettingsOpenRef.current) {
             setIsSettingsOpen(false);
           } else if (isScriptureExpandedRef.current) {
             setIsScriptureExpanded(false);
@@ -1600,125 +1609,235 @@ export function App() {
           </div>
         )}
 
-        {/* Always-Visible Stage Voice Selection Bar */}
+        {/* Compact Mobile Stage Voice Channel Bar (Option 2) */}
         {!isFocusMode && (
-          <div className="px-3.5 py-2 bg-slate-950 border-b border-slate-900 flex items-center justify-between gap-1.5 shrink-0 animate-in fade-in duration-200">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-              {/* Auto-Follow Pill */}
+          <div className="relative px-3.5 py-2 bg-slate-950 border-b border-slate-900 flex items-center justify-between gap-2 shrink-0 animate-in fade-in duration-200">
+            {/* Left: Compact Dropdown Trigger */}
+            <div className="relative">
               <button
                 type="button"
-                onClick={() => {
-                  setVoiceViewMode('auto');
-                  speechEngineRef.current?.stopAll();
-                }}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                  voiceViewMode === 'auto'
-                    ? 'bg-gradient-to-r from-sky-400 to-indigo-500 text-slate-950 shadow-sm'
-                    : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-                }`}
-                title="Automatically switches and displays whichever stage speaker is speaking"
+                onClick={() => setIsVoiceDropdownOpen((prev) => !prev)}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs font-semibold text-white flex items-center gap-2 cursor-pointer shadow-sm transition active:scale-95"
               >
-                <Sparkles className="w-3 h-3" />
-                Auto-Follow
-                {voiceViewMode === 'auto' && <Check className="w-3 h-3" />}
+                {voiceViewMode === 'auto' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                    <span className="flex items-center gap-1 text-sky-300">
+                      <Sparkles className="w-3 h-3 text-sky-400" />
+                      All Voices (Auto)
+                    </span>
+                  </>
+                ) : voiceViewMode === 'all' ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    <span>All Voices (Combined)</span>
+                  </>
+                ) : voiceViewMode === 'split' ? (
+                  <>
+                    <Rows2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-amber-300">2 Windows (Split)</span>
+                  </>
+                ) : (
+                  (() => {
+                    const selectedSpk = speakers.find((s) => s.id === voiceViewMode);
+                    return (
+                      <>
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: selectedSpk?.accentColor || '#38bdf8' }}
+                        />
+                        <span>{selectedSpk?.label || 'Speaker'} (Isolated)</span>
+                      </>
+                    );
+                  })()
+                )}
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                    isVoiceDropdownOpen ? 'rotate-180 text-white' : ''
+                  }`}
+                />
               </button>
 
-              {/* All Voices Pill */}
-              <button
-                type="button"
-                onClick={() => {
-                  setVoiceViewMode('all');
-                  speechEngineRef.current?.stopAll();
-                }}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition cursor-pointer ${
-                  voiceViewMode === 'all'
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'bg-slate-900 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                All Voices
-              </button>
-
-              {/* Dynamic Speaker Pills */}
-              {speakers.map((spk) => {
-                const isSelected = voiceViewMode === spk.id;
-                const isActiveSpeaking = activeSpeakerId === spk.id;
-                const displayCode =
-                  spk.id === 'speaker_1'
-                    ? speaker1SourceLang === 'auto'
-                      ? 'Auto'
-                      : speaker1SourceLang.toUpperCase()
-                    : spk.id === 'speaker_2'
-                    ? targetLangCode.toUpperCase()
-                    : (spk.detectedLanguageCode || '').toUpperCase();
-
-                return (
+              {/* Dropdown Menu Modal Sheet */}
+              {isVoiceDropdownOpen && (
+                <>
                   <div
-                    key={spk.id}
-                    className={`rounded-full text-[11px] font-semibold shrink-0 flex items-center transition ${
-                      spk.isIgnored
-                        ? 'bg-slate-900/50 text-slate-500 border border-slate-800/60 line-through opacity-70'
-                        : isSelected
-                        ? 'bg-sky-500 text-slate-950'
-                        : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
+                    className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                    onClick={() => setIsVoiceDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 top-full mt-1.5 w-72 max-w-[85vw] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="px-2.5 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800/80 mb-1 flex items-center justify-between">
+                      <span>Select Voice Channel</span>
+                      <span className="text-[9px] font-normal text-slate-500">Tap to isolate</span>
+                    </div>
+
+                    {/* Auto-Follow Option */}
                     <button
                       type="button"
                       onClick={() => {
-                        if (spk.isIgnored) {
-                          toggleIgnoreSpeaker(spk.id);
-                        }
-                        setVoiceViewMode(isSelected ? 'all' : spk.id);
+                        setVoiceViewMode('auto');
+                        setIsVoiceDropdownOpen(false);
                         speechEngineRef.current?.stopAll();
                       }}
-                      className="pl-2.5 pr-1.5 py-1 flex items-center gap-1 cursor-pointer"
-                      title={`Lock & isolate ${spk.label}`}
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+                        voiceViewMode === 'auto'
+                          ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                          : 'text-slate-300 hover:bg-slate-800/70'
+                      }`}
                     >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          isActiveSpeaking && isListening && !spk.isIgnored ? 'animate-pulse ring-2 ring-sky-400' : ''
-                        }`}
-                        style={{ backgroundColor: spk.isIgnored ? '#64748b' : spk.accentColor }}
-                      />
-                      {spk.label} ({displayCode})
-                      {isSelected && !spk.isIgnored && <Check className="w-3 h-3" />}
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <div>
+                          <div className="font-bold">✨ All Voices (Auto-Follow)</div>
+                          <div className="text-[10px] text-slate-400 font-normal">Tracks active speaker automatically</div>
+                        </div>
+                      </div>
+                      {voiceViewMode === 'auto' && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
                     </button>
+
+                    {/* All Voices Combined */}
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleIgnoreSpeaker(spk.id);
+                      onClick={() => {
+                        setVoiceViewMode('all');
+                        setIsVoiceDropdownOpen(false);
+                        speechEngineRef.current?.stopAll();
                       }}
-                      className={`pr-2 pl-0.5 py-1 cursor-pointer transition ${
-                        isSelected && !spk.isIgnored
-                          ? 'text-slate-900/70 hover:text-slate-950'
-                          : 'text-slate-500 hover:text-rose-400'
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+                        voiceViewMode === 'all'
+                          ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+                          : 'text-slate-300 hover:bg-slate-800/70'
                       }`}
-                      title={spk.isIgnored ? `Unmute ${spk.label}` : `Mute / ignore ${spk.label}`}
                     >
-                      <VolumeX className="w-3 h-3" />
+                      <div className="flex items-center gap-2">
+                        <Radio className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <div>
+                          <div className="font-bold">All Voices (Combined)</div>
+                          <div className="text-[10px] text-slate-400 font-normal">Displays all stage dialogue in one stream</div>
+                        </div>
+                      </div>
+                      {voiceViewMode === 'all' && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                    </button>
+
+                    {/* Dynamic Stage Speakers */}
+                    {speakers.map((spk) => {
+                      const isSelected = voiceViewMode === spk.id;
+                      const isActiveSpeaking = activeSpeakerId === spk.id;
+                      const displayCode =
+                        spk.id === 'speaker_1'
+                          ? speaker1SourceLang === 'auto'
+                            ? 'Auto'
+                            : speaker1SourceLang.toUpperCase()
+                          : spk.id === 'speaker_2'
+                          ? targetLangCode.toUpperCase()
+                          : (spk.detectedLanguageCode || '').toUpperCase();
+
+                      return (
+                        <div
+                          key={spk.id}
+                          className={`w-full px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition ${
+                            isSelected
+                              ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30 font-semibold'
+                              : spk.isIgnored
+                              ? 'text-slate-500 line-through opacity-60'
+                              : 'text-slate-300 hover:bg-slate-800/70'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (spk.isIgnored) {
+                                toggleIgnoreSpeaker(spk.id);
+                              }
+                              setVoiceViewMode(spk.id);
+                              setIsVoiceDropdownOpen(false);
+                              speechEngineRef.current?.stopAll();
+                            }}
+                            className="flex items-center gap-2 flex-1 text-left cursor-pointer min-w-0"
+                          >
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                isActiveSpeaking && isListening && !spk.isIgnored ? 'animate-pulse ring-2 ring-sky-400' : ''
+                              }`}
+                              style={{ backgroundColor: spk.isIgnored ? '#64748b' : spk.accentColor }}
+                            />
+                            <div className="min-w-0 truncate">
+                              <span className="font-bold">{spk.label}</span>{' '}
+                              <span className="text-[10px] text-slate-400 font-normal">({displayCode})</span>
+                            </div>
+                          </button>
+
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            {isSelected && <Check className="w-3.5 h-3.5 text-sky-400" />}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleIgnoreSpeaker(spk.id);
+                              }}
+                              className={`p-1 rounded-lg transition cursor-pointer ${
+                                spk.isIgnored
+                                  ? 'text-rose-400 bg-rose-500/10'
+                                  : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
+                              }`}
+                              title={spk.isIgnored ? `Unmute ${spk.label}` : `Mute / ignore ${spk.label}`}
+                            >
+                              <VolumeX className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* 2-Window Split View */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVoiceViewMode('split');
+                        setIsVoiceDropdownOpen(false);
+                        speechEngineRef.current?.stopAll();
+                      }}
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
+                        voiceViewMode === 'split'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : 'text-slate-300 hover:bg-slate-800/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Rows2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <div>
+                          <div className="font-bold">🪟 2 Windows (Split View)</div>
+                          <div className="text-[10px] text-slate-400 font-normal">Side-by-side stream comparison</div>
+                        </div>
+                      </div>
+                      {voiceViewMode === 'split' && <Check className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
                     </button>
                   </div>
-                );
-              })}
+                </>
+              )}
+            </div>
 
-              {/* 2 Windows Split Pill */}
-              <button
-                type="button"
-                onClick={() => {
-                  setVoiceViewMode(voiceViewMode === 'split' ? 'all' : 'split');
-                  speechEngineRef.current?.stopAll();
-                }}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 flex items-center gap-1 transition cursor-pointer ${
-                  voiceViewMode === 'split'
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'bg-slate-900 text-slate-300 border border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <Rows2 className="w-3 h-3" />
-                2 Windows
-              </button>
+            {/* Right: Active Speaker Live Status Indicator */}
+            <div className="flex items-center gap-2">
+              {activeScripture && (
+                <button
+                  type="button"
+                  onClick={() => setIsScriptureExpanded(true)}
+                  className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer hover:bg-amber-500/25 transition"
+                  title="View detected Bible scripture"
+                >
+                  <BookOpen className="w-3 h-3 text-amber-400" />
+                  <span>{activeScripture.reference}</span>
+                </button>
+              )}
+              {isListening && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1.5 bg-slate-900 px-2 py-1 rounded-full border border-slate-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="truncate max-w-[80px]">
+                    {speakers.find((s) => s.id === activeSpeakerId)?.label || 'Stage'}
+                  </span>
+                </span>
+              )}
             </div>
           </div>
         )}

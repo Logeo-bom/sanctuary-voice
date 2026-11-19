@@ -25,6 +25,7 @@ export class ChurchAudioEngine {
   private segmentStartTime = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
+  private isHandlingDeviceChange = false;
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
@@ -54,6 +55,62 @@ export class ChurchAudioEngine {
       return [];
     }
   }
+
+  public static async findPreferredBuiltInMicId(): Promise<string | null> {
+    try {
+      const inputs = await ChurchAudioEngine.listAudioInputDevices();
+      const headsetPattern = /bluetooth|hands-?free|headset|airpods|buds|earbuds|earphone|tws|sco|hfp/i;
+      const builtInPattern = /built-?in|internal|phone|microphone|speakerphone|bottom|main|camcorder/i;
+
+      // Prefer an explicitly labeled built-in phone mic over Bluetooth/earbud mics
+      const explicitBuiltIn = inputs.find(
+        (d) =>
+          d.deviceId &&
+          d.deviceId !== 'default' &&
+          d.deviceId !== 'communications' &&
+          d.label &&
+          builtInPattern.test(d.label) &&
+          !headsetPattern.test(d.label)
+      );
+      if (explicitBuiltIn) return explicitBuiltIn.deviceId;
+
+      // Otherwise pick any non-Bluetooth, non-headset concrete input device
+      const nonHeadset = inputs.find(
+        (d) =>
+          d.deviceId &&
+          d.deviceId !== 'default' &&
+          d.deviceId !== 'communications' &&
+          d.label &&
+          !headsetPattern.test(d.label)
+      );
+      return nonHeadset ? nonHeadset.deviceId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private handleDeviceChange = async (): Promise<void> => {
+    if (!this.isRunning || this.isHandlingDeviceChange || this.config.audioSource === 'tab') return;
+    if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') return;
+
+    const currentTrack = this.rawStream?.getAudioTracks()[0];
+    const currentLabel = currentTrack?.label || '';
+    const isUsingHeadsetMic = /bluetooth|hands-?free|headset|airpods|buds|earbuds|earphone|tws|sco|hfp/i.test(
+      currentLabel
+    );
+
+    if (isUsingHeadsetMic) {
+      const builtInId = await ChurchAudioEngine.findPreferredBuiltInMicId();
+      if (builtInId && builtInId !== currentTrack?.getSettings()?.deviceId) {
+        this.isHandlingDeviceChange = true;
+        try {
+          await this.restart();
+        } finally {
+          this.isHandlingDeviceChange = false;
+        }
+      }
+    }
+  };
 
   public async start(
     sourceOverride?: 'mic' | 'tab',
@@ -141,12 +198,23 @@ export class ChurchAudioEngine {
 
       if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') {
         audioConstraints.deviceId = { exact: this.config.selectedDeviceId };
+      } else {
+        // Auto-prefer the phone's built-in microphone over Bluetooth/earbud mics
+        // so earphones play translated audio while the phone captures the pulpit PA
+        const builtInMicId = await ChurchAudioEngine.findPreferredBuiltInMicId();
+        if (builtInMicId) {
+          audioConstraints.deviceId = { ideal: builtInMicId };
+        }
       }
 
       this.rawStream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
         video: false,
       });
+
+      if (navigator.mediaDevices?.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange);
+      }
     }
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -261,6 +329,10 @@ export class ChurchAudioEngine {
   public stop(): void {
     this.isRunning = false;
     this.accumulatedSlices = [];
+
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.removeEventListener) {
+      navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange);
+    }
 
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);

@@ -1,7 +1,9 @@
 package org.sanctuaryvoice.translator;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.view.WindowManager;
 import androidx.core.app.ActivityCompat;
@@ -27,6 +29,28 @@ public class MainActivity extends BridgeActivity {
                     },
                     AUDIO_PERMISSION_REQUEST_CODE
             );
+        }
+
+        configureSanctuaryAudioRouting();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        configureSanctuaryAudioRouting();
+    }
+
+    private void configureSanctuaryAudioRouting() {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager == null) {
+            return;
+        }
+        // Keep media/A2DP mode active so Bluetooth earphones play translated audio
+        // in full quality while the phone's built-in microphone captures the pulpit PA.
+        audioManager.setMode(AudioManager.MODE_NORMAL);
+        if (audioManager.isBluetoothScoOn()) {
+            audioManager.setBluetoothScoOn(false);
+            audioManager.stopBluetoothSco();
         }
     }
 }

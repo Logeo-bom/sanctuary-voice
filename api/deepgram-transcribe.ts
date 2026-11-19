@@ -89,8 +89,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = await dgResponse.json();
     const channels = data?.results?.channels?.[0];
-    const detectedLang =
-      channels?.detected_language || (sourceLang !== 'auto' ? sourceLang : 'en');
+
+    // Detect language from Deepgram channel or words
+    let deepgramDetected = channels?.detected_language as string | undefined;
+    if (!deepgramDetected && channels?.alternatives?.[0]?.words?.length) {
+      const langCounts: Record<string, number> = {};
+      for (const w of channels.alternatives[0].words) {
+        if (w.language) {
+          langCounts[w.language] = (langCounts[w.language] || 0) + 1;
+        }
+      }
+      const sortedLangs = Object.entries(langCounts).sort((a, b) => b[1] - a[1]);
+      if (sortedLangs.length > 0) {
+        deepgramDetected = sortedLangs[0][0];
+      }
+    }
+
+    const initialSourceLang =
+      deepgramDetected || (sourceLang !== 'auto' ? sourceLang : 'auto');
     const paragraphs =
       channels?.alternatives?.[0]?.paragraphs?.paragraphs || [];
 
@@ -113,8 +129,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (req.headers['x-deepl-key'] as string) ||
       '';
 
-    const translateHelper = async (text: string, src: string, tgt: string) => {
-      if (src.toLowerCase() === tgt.toLowerCase()) return text;
+    const translateHelper = async (
+      text: string,
+      src: string,
+      tgt: string
+    ): Promise<{ translated: string; lang: string }> => {
+      // If source language is known and matches target, no translation needed
+      if (src !== 'auto' && src.toLowerCase() === tgt.toLowerCase()) {
+        return { translated: text, lang: src };
+      }
 
       // 1. Try DeepL API first if key exists
       if (deeplKey) {
@@ -148,27 +171,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           if (deeplRes.ok) {
             const deeplData = await deeplRes.json();
             const translated = deeplData?.translations?.[0]?.text;
-            if (translated) return translated;
+            const detected =
+              deeplData?.translations?.[0]?.detected_source_language?.toLowerCase() ||
+              (src !== 'auto' ? src : 'en');
+            if (translated) {
+              return { translated, lang: detected };
+            }
           }
         } catch {
           // Fall through to Google Translate fallback
         }
       }
 
-      // 2. High-performance fallback: Google Neural translation
+      // 2. High-performance fallback: Google Neural translation with auto-detection
       try {
         const transUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(
-          src
+          src || 'auto'
         )}&tl=${encodeURIComponent(tgt)}&dt=t&q=${encodeURIComponent(text)}`;
         const gRes = await fetch(transUrl);
-        if (!gRes.ok) return text;
-        const gData = (await gRes.json()) as Array<Array<[string]>>;
-        if (Array.isArray(gData?.[0])) {
-          return gData[0].map((part) => part[0]).join('');
+        if (gRes.ok) {
+          const gData = (await gRes.json()) as Array<Array<[string]>>;
+          let translated = text;
+          if (Array.isArray(gData?.[0])) {
+            translated = gData[0].map((part) => part[0]).join('');
+          }
+          const detected =
+            typeof (gData as unknown[])?.[2] === 'string'
+              ? ((gData as unknown[])[2] as string)
+              : src !== 'auto'
+              ? src
+              : 'en';
+          return { translated, lang: detected };
         }
-        return text;
+        return { translated: text, lang: src !== 'auto' ? src : 'en' };
       } catch {
-        return text;
+        return { translated: text, lang: src !== 'auto' ? src : 'en' };
       }
     };
 
@@ -181,15 +218,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .trim();
 
         if (originalText.length > 0) {
-          const translatedText = await translateHelper(originalText, detectedLang, targetLang);
+          const { translated: translatedText, lang: finalLang } =
+            await translateHelper(originalText, initialSourceLang, targetLang);
           utterances.push({
             speakerId: `speaker_${speakerNum + 1}`,
-            speakerLabel: speakerNum === 0 ? 'Speaker 1 (Pulpit PA)' : `Speaker ${speakerNum + 1} (Audience/Floor)`,
-            sourceLanguageCode: detectedLang,
-            sourceLanguageName: detectedLang.toUpperCase(),
+            speakerLabel:
+              speakerNum === 0
+                ? 'Speaker 1 (Pulpit PA)'
+                : `Speaker ${speakerNum + 1} (Audience/Floor)`,
+            sourceLanguageCode: finalLang,
+            sourceLanguageName: finalLang.toUpperCase(),
             originalText,
             translatedText,
-            backgroundNoiseNote: speakerNum > 0 ? 'Filtered Ambient/Congregation Voice' : undefined,
+            backgroundNoiseNote:
+              speakerNum > 0 ? 'Filtered Ambient/Congregation Voice' : undefined,
             latencyMs: Date.now() - t0,
           });
         }
@@ -198,12 +240,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const singleTranscript =
         channels?.alternatives?.[0]?.transcript?.trim() || '';
       if (singleTranscript.length > 0) {
-        const translatedText = await translateHelper(singleTranscript, detectedLang, targetLang);
+        const { translated: translatedText, lang: finalLang } =
+          await translateHelper(singleTranscript, initialSourceLang, targetLang);
         utterances.push({
           speakerId: 'speaker_1',
           speakerLabel: 'Speaker 1 (Pulpit PA)',
-          sourceLanguageCode: detectedLang,
-          sourceLanguageName: detectedLang.toUpperCase(),
+          sourceLanguageCode: finalLang,
+          sourceLanguageName: finalLang.toUpperCase(),
           originalText: singleTranscript,
           translatedText,
           latencyMs: Date.now() - t0,

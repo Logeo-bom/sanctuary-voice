@@ -137,22 +137,20 @@ export class DeepgramLiveWebSocket {
             const speechFinal = Boolean(data?.speech_final);
 
             if (transcript && transcript.length > 0 && !isFinal) {
-              if (confidence >= 0.45) {
-                this.onInterim?.(transcript);
-              }
+              this.onInterim?.(transcript);
             }
 
             if (transcript && transcript.length > 0 && isFinal) {
               this.onInterim?.(''); // Clear interim when finalized
 
               // Hallucination & Room-Noise Gate:
-              // Drop punctuation-only chunks or low-confidence background noise / worship music artifacts
+              // Drop empty or punctuation-only strings
               const strippedText = transcript.replace(/[\s.,?!;:'"()\-–—…]+/g, '');
               if (!strippedText) {
                 return;
               }
-              const wordCount = transcript.split(/\s+/).filter(Boolean).length;
-              if (confidence < 0.52 || (confidence < 0.65 && wordCount <= 2)) {
+              // Lenient confidence gate to ensure distant church room audio is captured
+              if (confidence < 0.25) {
                 return;
               }
 

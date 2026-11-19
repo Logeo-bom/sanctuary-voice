@@ -41,6 +41,7 @@ import { translateChurchStageAudioChunk } from './services/geminiStageTranslator
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
 import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
+import { OfflineEdgeTranslator } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 import {
   detectScriptureReferences,
@@ -184,12 +185,18 @@ export function App() {
   });
   const customChurchGlossaryRef = useRef<string[]>(customChurchGlossary);
 
+  const [isOnline, setIsOnline] = useState<boolean>(() => {
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  });
+  const [isOfflineEdgeActive, setIsOfflineEdgeActive] = useState<boolean>(false);
+
   const consecutiveFailuresRef = useRef<number>(0);
   const finishingQueueTimerRef = useRef<number | null>(null);
 
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
   const fallbackEngineRef = useRef<BrowserLiveSpeechFallback | null>(null);
+  const offlineEdgeEngineRef = useRef<OfflineEdgeTranslator | null>(null);
   const deepgramWsRef = useRef<DeepgramLiveWebSocket | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -249,7 +256,57 @@ export function App() {
 
   useEffect(() => {
     fallbackEngineRef.current?.setLanguages(speaker1SourceLang, targetLangCode);
+    offlineEdgeEngineRef.current?.setLanguages(speaker1SourceLang, targetLangCode);
   }, [speaker1SourceLang, targetLangCode]);
+
+  // Network State Tracker for Offline Sanctuary Mode
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setErrorNotice(null);
+      if (isOfflineEdgeActive) {
+        setIsOfflineEdgeActive(false);
+        offlineEdgeEngineRef.current?.stop();
+      }
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setErrorNotice('Offline Sanctuary Mode: Device network disconnected. Running local on-device speech model.');
+      if (isListening && !isOfflineEdgeActive) {
+        setIsOfflineEdgeActive(true);
+        deepgramWsRef.current?.close();
+        deepgramWsRef.current = null;
+        if (!offlineEdgeEngineRef.current) {
+          offlineEdgeEngineRef.current = new OfflineEdgeTranslator(
+            speaker1LangRef.current,
+            targetLangRef.current,
+            (ev) => {
+              upsertSpeakerAndAppendSegment({
+                speakerId: 'speaker_1',
+                speakerLabel: 'Speaker 1 (Offline Sanctuary Edge)',
+                roleHint: 'main-speaker',
+                sourceLanguageCode: ev.sourceLanguageCode,
+                sourceLanguageName: ev.sourceLanguageName,
+                originalText: ev.originalText,
+                translatedText: ev.translatedText,
+                latencyMs: ev.latencyMs,
+              });
+            }
+          );
+        }
+        offlineEdgeEngineRef.current.start();
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      offlineEdgeEngineRef.current?.stop();
+    };
+  }, [isListening, isOfflineEdgeActive]);
 
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -776,9 +833,12 @@ export function App() {
       deepgramWsRef.current = null;
       fallbackEngineRef.current?.stop();
       fallbackEngineRef.current = null;
+      offlineEdgeEngineRef.current?.stop();
+      offlineEdgeEngineRef.current = null;
       speechEngineRef.current?.stopAll();
       setLiveInterimText('');
       setIsListening(false);
+      setIsOfflineEdgeActive(false);
       return;
     }
 
@@ -786,6 +846,32 @@ export function App() {
       setErrorNotice(null);
       // Unlock mobile browser speech playback on user gesture
       speechEngineRef.current?.unlockAudio();
+
+      // If device is offline, automatically start local edge translator
+      if (!navigator.onLine) {
+        setIsOfflineEdgeActive(true);
+        if (!offlineEdgeEngineRef.current) {
+          offlineEdgeEngineRef.current = new OfflineEdgeTranslator(
+            speaker1LangRef.current,
+            targetLangRef.current,
+            (ev) => {
+              upsertSpeakerAndAppendSegment({
+                speakerId: 'speaker_1',
+                speakerLabel: 'Speaker 1 (Offline Sanctuary Edge)',
+                roleHint: 'main-speaker',
+                sourceLanguageCode: ev.sourceLanguageCode,
+                sourceLanguageName: ev.sourceLanguageName,
+                originalText: ev.originalText,
+                translatedText: ev.translatedText,
+                latencyMs: ev.latencyMs,
+              });
+            }
+          );
+        }
+        offlineEdgeEngineRef.current.start();
+        setIsListening(true);
+        return;
+      }
 
       // If Deepgram is selected, connect direct low-latency WebSocket (using serverless token or stored key)
       if (aiProviderRef.current === 'deepgram') {
@@ -1672,15 +1758,30 @@ export function App() {
 
         {/* MAIN TRANSLATION READER AREA */}
         <main className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {/* Offline Warning Banner if connection drops */}
+          {!isOnline && (
+            <div className="mx-4 mt-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs text-amber-300">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                Offline Sanctuary Mode (Local On-Device Engine)
+              </span>
+              <span className="text-[10px] text-amber-400/80">No Internet Required</span>
+            </div>
+          )}
+
           {/* Real-time Diagnostics Badge when listening */}
           {isListening && (
             <div className="px-2.5 py-1 bg-slate-900/90 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] text-slate-400">
               <span className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${meter.isVoiceDetected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                {meter.isVoiceDetected ? 'Voice Detected' : 'Listening for Voice...'} ({meter.rmsDb} dB)
+                <span className={`w-2 h-2 rounded-full ${isOfflineEdgeActive ? 'bg-amber-400 animate-pulse' : meter.isVoiceDetected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                {isOfflineEdgeActive
+                  ? 'Offline Sanctuary Mode Active'
+                  : meter.isVoiceDetected
+                  ? 'Voice Detected'
+                  : 'Listening for Voice...'} {!isOfflineEdgeActive && `(${meter.rmsDb} dB)`}
               </span>
               <span>
-                Engine: {deepgramWsRef.current ? 'Live WebSocket' : 'Direct REST'}
+                Engine: {isOfflineEdgeActive ? 'On-Device NPU/Edge' : deepgramWsRef.current ? 'Live WebSocket + DeepL' : 'Direct REST'}
               </span>
             </div>
           )}

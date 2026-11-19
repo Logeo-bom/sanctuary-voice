@@ -206,8 +206,13 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
-    this.startContinuousStreamRecorder();
-    this.startSegmentedRecorder();
+    if (this.onStreamingSlice) {
+      // Single dedicated continuous stream recorder for live WebSocket (avoids Android Chrome dual-recorder stall)
+      this.startContinuousStreamRecorder();
+    } else {
+      // Standalone segmented 3.5s recorder for REST / Gemini fallback
+      this.startSegmentedRecorder();
+    }
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -298,6 +303,20 @@ export class ChurchAudioEngine {
       }
     }
     return '';
+  }
+
+  public restartContinuousStreamRecorder(): void {
+    if (!this.isRunning || !this.destinationNode || !this.onStreamingSlice) return;
+    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
+      try {
+        this.continuousStreamingRecorder.ondataavailable = null;
+        this.continuousStreamingRecorder.stop();
+      } catch {
+        // Ignore stop errors
+      }
+    }
+    this.continuousStreamingRecorder = null;
+    this.startContinuousStreamRecorder();
   }
 
   private startContinuousStreamRecorder(): void {
@@ -392,6 +411,11 @@ export class ChurchAudioEngine {
 
     const update = () => {
       if (!this.isRunning || !this.analyserNode) return;
+
+      // Mobile browser resilience: auto-resume AudioContext if TTS or OS focus suspended it
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        void this.audioContext.resume();
+      }
 
       this.analyserNode.getFloatTimeDomainData(timeDomain);
       this.analyserNode.getByteFrequencyData(freqDomain);

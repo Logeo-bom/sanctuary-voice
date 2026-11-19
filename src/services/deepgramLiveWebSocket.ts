@@ -26,6 +26,7 @@ export class DeepgramLiveWebSocket {
   private onSegment: OnTranscriptCallback;
   private onInterim?: OnInterimCallback;
   private onError: OnErrorCallback;
+  private onReconnected?: () => void;
 
   // Utterance accumulation state to ensure word-for-word complete sentences
   private accumulatedWords: string[] = [];
@@ -45,7 +46,8 @@ export class DeepgramLiveWebSocket {
     onSegment: OnTranscriptCallback,
     onError: OnErrorCallback,
     onInterim?: OnInterimCallback,
-    customChurchGlossary: string[] = []
+    customChurchGlossary: string[] = [],
+    onReconnected?: () => void
   ) {
     this.apiKey = apiKey.trim();
     this.sourceLang = sourceLang;
@@ -54,6 +56,7 @@ export class DeepgramLiveWebSocket {
     this.onSegment = onSegment;
     this.onError = onError;
     this.onInterim = onInterim;
+    this.onReconnected = onReconnected;
   }
 
   public async connect(): Promise<void> {
@@ -318,7 +321,7 @@ export class DeepgramLiveWebSocket {
           this.socket.send(JSON.stringify({ type: 'KeepAlive' }));
         } catch {}
       }
-    }, 5000);
+    }, 4000);
   }
 
   private stopKeepAlive(): void {
@@ -339,11 +342,16 @@ export class DeepgramLiveWebSocket {
       this.connect()
         .then(() => {
           this.isReconnecting = false;
+          // Notify audio engine to emit a fresh WebM container header for the new socket
+          this.onReconnected?.();
         })
         .catch(() => {
           this.isReconnecting = false;
+          if (this.accessToken) {
+            this.attemptReconnect();
+          }
         });
-    }, 1500);
+    }, 1200);
   }
 
   private async translateAndDetect(

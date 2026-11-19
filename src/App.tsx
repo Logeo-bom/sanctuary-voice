@@ -1099,7 +1099,11 @@ export function App() {
             (interim) => {
               setLiveInterimText(interim);
             },
-            customChurchGlossaryRef.current
+            customChurchGlossaryRef.current,
+            () => {
+              // Emit a fresh WebM container header whenever Deepgram WebSocket reconnects
+              audioEngineRef.current?.restartContinuousStreamRecorder();
+            }
           );
 
           await wsClient.connect();
@@ -1110,11 +1114,15 @@ export function App() {
         }
       }
 
+      const useLiveWebSocket = Boolean(deepgramWsRef.current?.isConnected());
+
       const engine = new ChurchAudioEngine(
         audioConfig,
         (blob, mime, dur) => {
-          // Complete 3.5s standalone audio chunk with full container headers for Gemini / REST
-          void handleAudioChunkReady(blob, mime, dur);
+          // Complete 3.5s standalone audio chunk with full container headers for Gemini / REST fallback
+          if (!deepgramWsRef.current?.isConnected()) {
+            void handleAudioChunkReady(blob, mime, dur);
+          }
         },
         (snapshot) => setMeter(snapshot),
         () => {
@@ -1123,12 +1131,14 @@ export function App() {
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
         },
-        (sliceBlob) => {
-          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
-          if (deepgramWsRef.current) {
-            deepgramWsRef.current.sendAudio(sliceBlob);
-          }
-        }
+        useLiveWebSocket
+          ? (sliceBlob) => {
+              // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
+              if (deepgramWsRef.current) {
+                deepgramWsRef.current.sendAudio(sliceBlob);
+              }
+            }
+          : undefined
       );
       await engine.start(audioConfig.audioSource || 'mic');
       audioEngineRef.current = engine;

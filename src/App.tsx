@@ -1601,7 +1601,7 @@ export function App() {
               </select>
               {speaker1SourceLang === 'auto' && (
                 <p className="text-[9px] text-amber-400/90 mt-1 leading-tight">
-                  Tip: Pick Korean, Tagalog, or Chinese directly for best accuracy.
+                  Tip: Pick Norwegian, French, or Spanish directly for best accuracy.
                 </p>
               )}
             </div>

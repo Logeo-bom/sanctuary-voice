@@ -1,7 +1,7 @@
 import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/translator';
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
-export type AudioStreamingSliceCallback = (pcmBuffer: ArrayBuffer) => void;
+export type AudioStreamingSliceCallback = (sliceBlob: Blob) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
 export type StreamEndedCallback = () => void;
 
@@ -16,16 +16,13 @@ export class ChurchAudioEngine {
   private compressorNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
-  private pcmProcessorNode: ScriptProcessorNode | null = null;
-  private silentSinkNode: GainNode | null = null;
 
+  private continuousStreamingRecorder: MediaRecorder | null = null;
   private mediaRecorder: MediaRecorder | null = null;
-  private useSegmentedRecorder = false;
   private accumulatedSlices: Blob[] = [];
   private segmentStartTime = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
-  private isHandlingDeviceChange = false;
   private config: AudioProcessingConfig;
   private onAudioChunk: AudioChunkCallback;
   private onMeterUpdate: MeterUpdateCallback;
@@ -56,68 +53,8 @@ export class ChurchAudioEngine {
     }
   }
 
-  public static async findPreferredBuiltInMicId(): Promise<string | null> {
-    try {
-      const inputs = await ChurchAudioEngine.listAudioInputDevices();
-      const headsetPattern = /bluetooth|hands-?free|headset|airpods|buds|earbuds|earphone|tws|sco|hfp/i;
-      const builtInPattern = /built-?in|internal|phone|microphone|speakerphone|bottom|main|camcorder/i;
-
-      // Prefer an explicitly labeled built-in phone mic over Bluetooth/earbud mics
-      const explicitBuiltIn = inputs.find(
-        (d) =>
-          d.deviceId &&
-          d.deviceId !== 'default' &&
-          d.deviceId !== 'communications' &&
-          d.label &&
-          builtInPattern.test(d.label) &&
-          !headsetPattern.test(d.label)
-      );
-      if (explicitBuiltIn) return explicitBuiltIn.deviceId;
-
-      // Otherwise pick any non-Bluetooth, non-headset concrete input device
-      const nonHeadset = inputs.find(
-        (d) =>
-          d.deviceId &&
-          d.deviceId !== 'default' &&
-          d.deviceId !== 'communications' &&
-          d.label &&
-          !headsetPattern.test(d.label)
-      );
-      return nonHeadset ? nonHeadset.deviceId : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private handleDeviceChange = async (): Promise<void> => {
-    if (!this.isRunning || this.isHandlingDeviceChange || this.config.audioSource === 'tab') return;
-    if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') return;
-
-    const currentTrack = this.rawStream?.getAudioTracks()[0];
-    const currentLabel = currentTrack?.label || '';
-    const isUsingHeadsetMic = /bluetooth|hands-?free|headset|airpods|buds|earbuds|earphone|tws|sco|hfp/i.test(
-      currentLabel
-    );
-
-    if (isUsingHeadsetMic) {
-      const builtInId = await ChurchAudioEngine.findPreferredBuiltInMicId();
-      if (builtInId && builtInId !== currentTrack?.getSettings()?.deviceId) {
-        this.isHandlingDeviceChange = true;
-        try {
-          await this.restart();
-        } finally {
-          this.isHandlingDeviceChange = false;
-        }
-      }
-    }
-  };
-
-  public async start(
-    sourceOverride?: 'mic' | 'tab',
-    enableSegmentedRecorder = true
-  ): Promise<void> {
+  public async start(sourceOverride?: 'mic' | 'tab'): Promise<void> {
     if (this.isRunning) return;
-    this.useSegmentedRecorder = enableSegmentedRecorder;
 
     const source = sourceOverride || this.config.audioSource || 'mic';
 
@@ -198,23 +135,12 @@ export class ChurchAudioEngine {
 
       if (this.config.selectedDeviceId && this.config.selectedDeviceId !== 'default') {
         audioConstraints.deviceId = { exact: this.config.selectedDeviceId };
-      } else {
-        // Auto-prefer the phone's built-in microphone over Bluetooth/earbud mics
-        // so earphones play translated audio while the phone captures the pulpit PA
-        const builtInMicId = await ChurchAudioEngine.findPreferredBuiltInMicId();
-        if (builtInMicId) {
-          audioConstraints.deviceId = { ideal: builtInMicId };
-        }
       }
 
       this.rawStream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
         video: false,
       });
-
-      if (navigator.mediaDevices?.addEventListener) {
-        navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange);
-      }
     }
 
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -280,12 +206,8 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
-    if (this.onStreamingSlice) {
-      this.startPcmStreamer();
-    }
-    if (this.useSegmentedRecorder) {
-      this.startSegmentedRecorder();
-    }
+    this.startContinuousStreamRecorder();
+    this.startSegmentedRecorder();
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -315,48 +237,33 @@ export class ChurchAudioEngine {
 
     if (this.isRunning && (prevBypass !== this.config.bypassOsProcessing || prevDevice !== this.config.selectedDeviceId)) {
       void this.restart();
-    } else if (this.isRunning && this.useSegmentedRecorder && prevChunkSec !== this.config.chunkDurationSec) {
+    } else if (this.isRunning && prevChunkSec !== this.config.chunkDurationSec) {
       this.restartSegmentedRecorder();
     }
   }
 
   public async restart(): Promise<void> {
-    const keepSegmented = this.useSegmentedRecorder;
     this.stop();
-    await this.start(undefined, keepSegmented);
+    await this.start();
   }
 
   public stop(): void {
     this.isRunning = false;
     this.accumulatedSlices = [];
 
-    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.removeEventListener) {
-      navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange);
-    }
-
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);
       this.meterFrameId = null;
     }
 
-    if (this.pcmProcessorNode) {
+    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
       try {
-        this.pcmProcessorNode.onaudioprocess = null;
-        this.pcmProcessorNode.disconnect();
+        this.continuousStreamingRecorder.stop();
       } catch {
         // Ignore
       }
-      this.pcmProcessorNode = null;
     }
-
-    if (this.silentSinkNode) {
-      try {
-        this.silentSinkNode.disconnect();
-      } catch {
-        // Ignore
-      }
-      this.silentSinkNode = null;
-    }
+    this.continuousStreamingRecorder = null;
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try {
@@ -393,72 +300,27 @@ export class ChurchAudioEngine {
     return '';
   }
 
-  /**
-   * Streams raw 16kHz mono signed 16-bit PCM (linear16) directly to Deepgram Live WebSocket.
-   * Unlike WebM/MediaRecorder, raw PCM has no container headers, so WebSocket reconnects and
-   * mid-sermon language switches are 100% seamless with ~85ms frame latency.
-   */
-  private startPcmStreamer(): void {
-    if (!this.audioContext || !this.compressorNode || !this.isRunning || !this.onStreamingSlice) return;
+  private startContinuousStreamRecorder(): void {
+    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
 
+    const mimeType = this.getSupportedMimeType();
     try {
-      const targetSampleRate = 16000;
-      const inputSampleRate = this.audioContext.sampleRate;
-      const bufferSize = 4096;
+      // Dedicated single long-running continuous stream for the live WebSocket
+      // This sends chunk 0 (WebM Header) once, followed by seamless continuous 250ms audio slices
+      const streamRecorder = mimeType
+        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
+        : new MediaRecorder(this.destinationNode.stream);
 
-      const processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
-      const silentSink = this.audioContext.createGain();
-      silentSink.gain.value = 0;
-
-      processor.onaudioprocess = (ev) => {
-        if (!this.isRunning || !this.onStreamingSlice) return;
-        const inputData = ev.inputBuffer.getChannelData(0);
-        const pcm16 = this.downsampleToInt16(inputData, inputSampleRate, targetSampleRate);
-        if (pcm16.byteLength > 0) {
-          const slice = pcm16.buffer.slice(pcm16.byteOffset, pcm16.byteOffset + pcm16.byteLength) as ArrayBuffer;
-          this.onStreamingSlice(slice);
-        }
+      streamRecorder.ondataavailable = (ev) => {
+        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
+        this.onStreamingSlice?.(ev.data);
       };
 
-      this.compressorNode.connect(processor);
-      processor.connect(silentSink);
-      silentSink.connect(this.audioContext.destination);
-
-      this.pcmProcessorNode = processor;
-      this.silentSinkNode = silentSink;
+      this.continuousStreamingRecorder = streamRecorder;
+      streamRecorder.start(250);
     } catch (err) {
-      console.warn('Failed to start 16kHz PCM streamer:', err);
+      console.warn('Failed to start dedicated streaming WebSocket recorder:', err);
     }
-  }
-
-  private downsampleToInt16(
-    input: Float32Array,
-    inputSampleRate: number,
-    targetSampleRate: number
-  ): Int16Array {
-    if (inputSampleRate === targetSampleRate) {
-      const out = new Int16Array(input.length);
-      for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
-      return out;
-    }
-
-    const ratio = inputSampleRate / targetSampleRate;
-    const outputLength = Math.max(1, Math.floor(input.length / ratio));
-    const out = new Int16Array(outputLength);
-
-    for (let i = 0; i < outputLength; i++) {
-      const srcIdx = i * ratio;
-      const idx0 = Math.floor(srcIdx);
-      const idx1 = Math.min(idx0 + 1, input.length - 1);
-      const frac = srcIdx - idx0;
-      const sample = input[idx0] * (1 - frac) + input[idx1] * frac;
-      const clamped = Math.max(-1, Math.min(1, sample));
-      out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-    }
-    return out;
   }
 
   private startSegmentedRecorder(): void {
@@ -547,17 +409,12 @@ export class ChurchAudioEngine {
       const peakDb = Math.max(-75, 20 * Math.log10(Math.max(peak, 0.0001)));
 
       // Check energy specifically in the human vocal formant band (300Hz - 3400Hz)
-      // Dynamically calculate FFT bins using actual hardware sampleRate (16kHz / 44.1kHz / 48kHz)
-      const nyquist = (this.audioContext?.sampleRate || 48000) / 2;
-      const binHz = nyquist / freqDomain.length;
-      const lowBin = Math.max(1, Math.floor(300 / binHz));
-      const highBin = Math.min(freqDomain.length - 1, Math.ceil(3400 / binHz));
+      // With 16kHz sampleRate and 256 FFT, each bin is ~62.5Hz. Bins 5..54 correspond to 312Hz..3375Hz.
       let vocalBandSum = 0;
-      const binCount = Math.max(1, highBin - lowBin + 1);
-      for (let bin = lowBin; bin <= highBin; bin++) {
+      for (let bin = 5; bin <= 54 && bin < freqDomain.length; bin++) {
         vocalBandSum += freqDomain[bin];
       }
-      const vocalBandAvg = vocalBandSum / binCount;
+      const vocalBandAvg = vocalBandSum / 50;
 
       // Relaxed detection for distant TV / distant pulpit speakers (rmsDb > -58 or vocalBandAvg > 12)
       const isVoiceDetected = rmsDb > -58 || vocalBandAvg > 12;

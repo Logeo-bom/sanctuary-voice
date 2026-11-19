@@ -22,7 +22,9 @@ import {
   Activity,
   Zap,
   BookOpen,
+  ArrowLeft,
 } from 'lucide-react';
+import { App as CapApp } from '@capacitor/app';
 import type {
   AudioMeterSnapshot,
   AudioProcessingConfig,
@@ -208,6 +210,11 @@ export function App() {
   const deepgramKeyRef = useRef<string>(deepgramKey);
   const aiProviderRef = useRef<'deepgram' | 'gemini'>(aiProvider);
   const segmentsRef = useRef<TranslationSegment[]>(segments);
+  const isSettingsOpenRef = useRef<boolean>(isSettingsOpen);
+  const isScriptureExpandedRef = useRef<boolean>(isScriptureExpanded);
+  const activeScriptureRef = useRef<ScriptureData | null>(activeScripture);
+  const isFocusModeRef = useRef<boolean>(isFocusMode);
+  const isListeningRef = useRef<boolean>(isListening);
 
   useEffect(() => {
     speakersRef.current = speakers;
@@ -242,8 +249,109 @@ export function App() {
   }, [segments]);
 
   useEffect(() => {
+    isSettingsOpenRef.current = isSettingsOpen;
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    isScriptureExpandedRef.current = isScriptureExpanded;
+  }, [isScriptureExpanded]);
+
+  useEffect(() => {
+    activeScriptureRef.current = activeScripture;
+  }, [activeScripture]);
+
+  useEffect(() => {
+    isFocusModeRef.current = isFocusMode;
+  }, [isFocusMode]);
+
+  useEffect(() => {
+    isListeningRef.current = isListening;
+  }, [isListening]);
+
+  useEffect(() => {
     customChurchGlossaryRef.current = customChurchGlossary;
   }, [customChurchGlossary]);
+
+  // Sync browser history state when opening modals so browser/swipe back button works
+  useEffect(() => {
+    if (isSettingsOpen) {
+      window.history.pushState({ modal: 'settings' }, '');
+    }
+  }, [isSettingsOpen]);
+
+  // Native Mobile & Device Hardware Back Button / Navigation Key Support
+  useEffect(() => {
+    let removeListener: (() => void) | undefined;
+
+    const setupCapacitorBackButton = async () => {
+      try {
+        const handler = await CapApp.addListener('backButton', ({ canGoBack }) => {
+          if (isSettingsOpenRef.current) {
+            setIsSettingsOpen(false);
+          } else if (isScriptureExpandedRef.current) {
+            setIsScriptureExpanded(false);
+          } else if (activeScriptureRef.current) {
+            setActiveScripture(null);
+          } else if (isFocusModeRef.current) {
+            setIsFocusMode(false);
+          } else if (isListeningRef.current) {
+            audioEngineRef.current?.stop();
+            audioEngineRef.current = null;
+            deepgramWsRef.current?.close();
+            deepgramWsRef.current = null;
+            fallbackEngineRef.current?.stop();
+            fallbackEngineRef.current = null;
+            offlineEdgeEngineRef.current?.stop();
+            offlineEdgeEngineRef.current = null;
+            speechEngineRef.current?.stopAll();
+            setLiveInterimText('');
+            setIsListening(false);
+            setIsOfflineEdgeActive(false);
+          } else if (canGoBack) {
+            window.history.back();
+          } else {
+            void CapApp.exitApp();
+          }
+        });
+        removeListener = () => {
+          void handler.remove();
+        };
+      } catch (err) {
+        console.debug('Capacitor App backButton listener not active in web environment:', err);
+      }
+    };
+
+    void setupCapacitorBackButton();
+
+    const handlePopState = () => {
+      if (isSettingsOpenRef.current) {
+        setIsSettingsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isSettingsOpenRef.current) {
+          setIsSettingsOpen(false);
+        } else if (isScriptureExpandedRef.current) {
+          setIsScriptureExpanded(false);
+        } else if (activeScriptureRef.current) {
+          setActiveScripture(null);
+        } else if (isFocusModeRef.current) {
+          setIsFocusMode(false);
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      if (removeListener) removeListener();
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     speechEngineRef.current = new EarphoneSpeechEngine(speechConfig);
@@ -1388,6 +1496,17 @@ export function App() {
         {/* Clean App Header inside Phone */}
         <header className="px-4 py-2.5 flex items-center justify-between border-b border-slate-900 shrink-0">
           <div className="flex items-center gap-2">
+            {isFocusMode && (
+              <button
+                type="button"
+                onClick={() => setIsFocusMode(false)}
+                className="p-1 -ml-1 rounded-lg bg-slate-900 border border-slate-800 text-sky-400 hover:text-white flex items-center gap-1 text-[11px] font-semibold transition cursor-pointer"
+                title="Back to Home Screen"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+            )}
             <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
             <span className="font-bold text-sm text-white tracking-tight">
               SanctuaryVoice

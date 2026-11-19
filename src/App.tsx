@@ -588,23 +588,44 @@ export function App() {
     }) => {
       const currentSpeakers = [...speakersRef.current];
       const incomingLang = (params.sourceLanguageCode || '').toLowerCase().trim();
+      const targetLangLower = targetLangRef.current.toLowerCase();
+      const wordCount = params.originalText.trim().split(/\s+/).filter(Boolean).length;
+      const isSubstantialUtterance = wordCount >= 3 && params.originalText.trim().length >= 12;
 
       // Smart bilingual stage speaker assignment:
-      // In bilingual church services (e.g. Pastor in Portuguese, Live Interpreter in French):
+      // Prevent 1-2 word fillers ("Okay.", "Amen.") from hijacking the Pastor's language lock
       let targetSpeakerId = params.speakerId;
       let targetRoleHint = params.roleHint;
 
       const spk1 = currentSpeakers.find((s) => s.id === 'speaker_1');
-      const establishedLang1 =
-        speaker1LangRef.current !== 'auto'
-          ? speaker1LangRef.current.toLowerCase()
-          : (spk1?.detectedLanguageCode && spk1.detectedLanguageCode !== 'auto'
-              ? spk1.detectedLanguageCode.toLowerCase()
-              : '');
+      const manualLang1 =
+        speaker1LangRef.current !== 'auto' ? speaker1LangRef.current.toLowerCase() : '';
+      const autoLang1 =
+        spk1?.detectedLanguageCode && spk1.detectedLanguageCode !== 'auto'
+          ? spk1.detectedLanguageCode.toLowerCase()
+          : '';
+      const establishedLang1 = manualLang1 || autoLang1;
 
       if (incomingLang && incomingLang !== 'auto') {
-        if (!establishedLang1) {
-          // First detected language establishes Speaker 1 (Lead Preacher)
+        if (!isSubstantialUtterance) {
+          // Short filler ("Okay.", "Amen."): keep on most recently active unmuted speaker without locking language
+          const latestActive = [...currentSpeakers]
+            .filter((s) => !s.isIgnored && s.lastActiveAt > 0)
+            .sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+          targetSpeakerId = latestActive?.id || 'speaker_1';
+          targetRoleHint = targetSpeakerId === 'speaker_2' ? 'stage-interpreter' : 'main-speaker';
+        } else if (!establishedLang1) {
+          // First substantial sentence establishes Speaker 1 (Lead Preacher)
+          targetSpeakerId = 'speaker_1';
+          targetRoleHint = 'main-speaker';
+        } else if (
+          !manualLang1 &&
+          establishedLang1 === targetLangLower &&
+          incomingLang !== targetLangLower &&
+          (spk1?.segmentCount || 0) <= 3
+        ) {
+          // If Speaker 1 was briefly tagged with target language (e.g. "Okay" -> EN) before real foreign preaching started,
+          // re-anchor Speaker 1 to the actual sermon language
           targetSpeakerId = 'speaker_1';
           targetRoleHint = 'main-speaker';
         } else if (incomingLang === establishedLang1) {
@@ -622,6 +643,10 @@ export function App() {
       const incomingLangMeta = SUPPORTED_LANGUAGES.find((l) => l.code === incomingLang);
       const incomingLangName =
         incomingLangMeta?.name || (incomingLang ? incomingLang.toUpperCase() : 'Unknown');
+      const shouldUpdateSpeakerLang =
+        Boolean(incomingLang && incomingLang !== 'auto') &&
+        isSubstantialUtterance &&
+        Boolean(incomingLangMeta);
 
       if (!speaker) {
         const colorIndex = currentSpeakers.length % SPEAKER_PALETTE.length;
@@ -634,8 +659,8 @@ export function App() {
               ? 'Translator 2'
               : params.speakerLabel,
           roleHint: targetRoleHint,
-          detectedLanguageCode: incomingLang || 'auto',
-          detectedLanguageName: incomingLangName,
+          detectedLanguageCode: shouldUpdateSpeakerLang ? incomingLang : 'auto',
+          detectedLanguageName: shouldUpdateSpeakerLang ? incomingLangName : 'Auto',
           detectedDialect: params.detectedDialect,
           accentColor: SPEAKER_PALETTE[colorIndex],
           segmentCount: 1,
@@ -644,6 +669,20 @@ export function App() {
         };
         currentSpeakers.push(speaker);
       } else {
+        const keepExistingLang =
+          !shouldUpdateSpeakerLang &&
+          speaker.detectedLanguageCode &&
+          speaker.detectedLanguageCode !== 'auto';
+        const nextLangCode =
+          targetSpeakerId === 'speaker_1' && manualLang1
+            ? manualLang1
+            : keepExistingLang
+            ? speaker.detectedLanguageCode
+            : shouldUpdateSpeakerLang
+            ? incomingLang
+            : speaker.detectedLanguageCode;
+        const nextLangMeta = SUPPORTED_LANGUAGES.find((l) => l.code === nextLangCode);
+
         speaker = {
           ...speaker,
           label:
@@ -653,11 +692,12 @@ export function App() {
               ? (speaker.label === 'Speaker 2' ? 'Translator 2' : speaker.label)
               : speaker.label,
           roleHint: targetRoleHint || speaker.roleHint,
-          detectedLanguageCode: incomingLang || speaker.detectedLanguageCode,
+          detectedLanguageCode: nextLangCode,
           detectedLanguageName:
-            incomingLang && incomingLang !== 'auto'
-              ? incomingLangName
-              : speaker.detectedLanguageName,
+            nextLangMeta?.name ||
+            (nextLangCode && nextLangCode !== 'auto'
+              ? nextLangCode.toUpperCase()
+              : speaker.detectedLanguageName),
           detectedDialect: params.detectedDialect || speaker.detectedDialect,
           segmentCount: speaker.segmentCount + 1,
           lastActiveAt: Date.now(),

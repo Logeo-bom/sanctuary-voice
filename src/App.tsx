@@ -736,15 +736,31 @@ export function App() {
         latencyMs: params.latencyMs,
       };
 
-      // Global duplicate guard: prevent adding consecutive identical segments
+      // Global duplicate and overlap guard: prevent adding consecutive identical or repeating segments
       const prevSegments = segmentsRef.current;
       const lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
       if (lastSegment) {
         const normIncoming = params.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
         const normLast = lastSegment.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+        const normTransIncoming = params.translatedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+        const normTransLast = lastSegment.translatedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
         const timeDiff = Date.now() - lastSegment.timestamp;
-        if (normIncoming && normIncoming === normLast && timeDiff < 8000) {
-          return;
+
+        if (timeDiff < 10000) {
+          // Exact duplicate
+          if (normIncoming === normLast || normTransIncoming === normTransLast) {
+            return;
+          }
+          // Incoming is subset/tail of last segment
+          if ((normLast.endsWith(normIncoming) && normIncoming.length < 50) ||
+              (normTransLast.endsWith(normTransIncoming) && normTransIncoming.length < 50)) {
+            return;
+          }
+          // Incoming is a fuller expansion of the last short fragment
+          if (normIncoming.endsWith(normLast) || normTransIncoming.endsWith(normTransLast)) {
+            setSegments((prev) => [...prev.slice(0, -1), newSegment]);
+            return;
+          }
         }
       }
 
@@ -1190,14 +1206,11 @@ export function App() {
   const visibleSegments = useMemo(() => {
     const ignoredIds = new Set(speakers.filter((s) => s.isIgnored).map((s) => s.id));
     const activeSegments = segments.filter((s) => !ignoredIds.has(s.speakerId));
-    if (voiceViewMode === 'all' || voiceViewMode === 'split') {
+    if (voiceViewMode === 'all' || voiceViewMode === 'split' || voiceViewMode === 'auto') {
       return activeSegments;
     }
-    if (voiceViewMode === 'auto') {
-      return activeSegments.filter((s) => s.speakerId === activeSpeakerId);
-    }
     return activeSegments.filter((s) => s.speakerId === voiceViewMode);
-  }, [segments, speakers, voiceViewMode, activeSpeakerId]);
+  }, [segments, speakers, voiceViewMode]);
 
   const textSizeClass =
     fontSizeScale === 'xl'

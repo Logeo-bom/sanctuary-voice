@@ -229,13 +229,33 @@ export class DeepgramLiveWebSocket {
 
     if (!fullOriginalSentence) return;
 
-    // Clean duplicate check: ignore if identical sentence was already flushed within 10 seconds
-    const cleanSentence = fullOriginalSentence.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
-    const cleanLastFlushed = this.lastFlushedText.toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
     const now = Date.now();
-    if (cleanSentence && cleanSentence === cleanLastFlushed && now - this.lastFlushedAt < 10000) {
-      return;
+    let dedupedSentence = fullOriginalSentence;
+    if (this.lastFlushedText) {
+      const cleanLast = this.lastFlushedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+      const cleanCurrent = fullOriginalSentence.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
+
+      // Clean duplicate check: ignore if identical sentence was already flushed within 10 seconds
+      if (cleanCurrent && (cleanCurrent === cleanLast || cleanLast.endsWith(cleanCurrent)) && now - this.lastFlushedAt < 10000) {
+        return;
+      }
+
+      // Strip overlapping prefix if start of current sentence repeats the tail of previous sentence
+      const lastWords = this.lastFlushedText.trim().split(/\s+/);
+      const currentWords = fullOriginalSentence.trim().split(/\s+/);
+      const maxOverlap = Math.min(lastWords.length, currentWords.length, 6);
+
+      for (let len = maxOverlap; len >= 2; len--) {
+        const lastTail = lastWords.slice(-len).join(' ').toLowerCase().replace(/[.,?!]/g, '');
+        const currentHead = currentWords.slice(0, len).join(' ').toLowerCase().replace(/[.,?!]/g, '');
+        if (lastTail === currentHead) {
+          dedupedSentence = currentWords.slice(len).join(' ').trim();
+          break;
+        }
+      }
     }
+
+    if (!dedupedSentence || dedupedSentence.length < 2) return;
 
     this.lastFlushedText = fullOriginalSentence;
     this.lastFlushedAt = now;
@@ -243,7 +263,7 @@ export class DeepgramLiveWebSocket {
     try {
       // Direct, word-for-word translation of the complete sentence
       const { translatedText, detectedLang, provider } = await this.translateAndDetect(
-        fullOriginalSentence,
+        dedupedSentence,
         this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
         this.targetLang
       );

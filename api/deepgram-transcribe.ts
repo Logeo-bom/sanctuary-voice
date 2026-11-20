@@ -64,7 +64,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (modelName === 'nova-3') {
           extraParams = terms.map((t) => `&keyterm=${encodeURIComponent(t)}`).join('');
         } else {
-          extraParams = terms.map((t) => `&keywords=${encodeURIComponent(t)}:2`).join('');
+          const singleWords = terms.flatMap((t) => t.split(/\s+/)).filter((t) => t.length > 1);
+          extraParams = singleWords.map((t) => `&keywords=${encodeURIComponent(t)}:2`).join('');
         }
       } catch {}
     }

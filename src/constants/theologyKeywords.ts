@@ -33,14 +33,22 @@ export const THEOLOGICAL_KEYWORDS: Record<string, string[]> = {
 };
 
 export function getKeywordsForLanguage(langCode: string, customTerms: string[] = []): string[] {
-  const code = (langCode || 'en').toLowerCase().split('-')[0];
-  const specific = THEOLOGICAL_KEYWORDS[code] || [];
-  const english = THEOLOGICAL_KEYWORDS.en;
-  // Clean custom terms from user
+  const code = (langCode || '').toLowerCase().split('-')[0];
   const cleanedCustom = (customTerms || [])
     .map((t) => t.trim())
     .filter((t) => t.length > 0);
 
-  // Combine custom church terms (highest priority) + language-specific + English church words
-  return Array.from(new Set([...cleanedCustom, ...specific, ...english])).slice(0, 45);
+  if (!code || code === 'auto') {
+    // Universal multi-lingual terms for Auto-Detect mode (avoids English-only bias in Nova-3)
+    const multiTerms = [
+      'Jesus', 'Cristo', 'Deus', 'God', 'Dieu', 'Dios',
+      'Biblia', 'Bíblia', 'Bible', 'Palavra', 'Parole', 'Word',
+      'Amém', 'Amen', 'Aleluia', 'Hallelujah', 'Graça', 'Grace',
+      'Senhor', 'Señor', 'Lord', 'Seigneur', 'Igreja', 'Church', 'Église'
+    ];
+    return Array.from(new Set([...cleanedCustom, ...multiTerms])).slice(0, 30);
+  }
+
+  const specific = THEOLOGICAL_KEYWORDS[code] || [];
+  return Array.from(new Set([...cleanedCustom, ...specific])).slice(0, 45);
 }

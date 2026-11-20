@@ -747,18 +747,13 @@ export function App() {
         const normTransLast = lastSegment.translatedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
         const timeDiff = Date.now() - lastSegment.timestamp;
 
-        if (timeDiff < 10000) {
-          // Exact duplicate
+        if (timeDiff < 3500) {
+          // Exact duplicate within 3.5 seconds
           if (normIncoming === normLast || normTransIncoming === normTransLast) {
             return;
           }
-          // Incoming is subset/tail of last segment
-          if ((normLast.endsWith(normIncoming) && normIncoming.length < 50) ||
-            (normTransLast.endsWith(normTransIncoming) && normTransIncoming.length < 50)) {
-            return;
-          }
-          // Incoming is a fuller expansion of the last short fragment
-          if (normIncoming.endsWith(normLast) || normTransIncoming.endsWith(normTransLast)) {
+          // Incoming is a progressive expansion of the last short fragment (e.g. progressive STT sentence completion)
+          if (normIncoming.length > normLast.length && normIncoming.startsWith(normLast)) {
             setSegments((prev) => [...prev.slice(0, -1), newSegment]);
             return;
           }

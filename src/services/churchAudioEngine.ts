@@ -20,9 +20,10 @@ export class ChurchAudioEngine {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
   private continuousStreamingRecorder: MediaRecorder | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
-  private accumulatedSlices: Blob[] = [];
-  private segmentStartTime = 0;
+  private scriptProcessorNode: ScriptProcessorNode | null = null;
+  private silentGainNode: GainNode | null = null;
+  private pcmChunks: Float32Array[] = [];
+  private pcmSampleCount = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
   private config: AudioProcessingConfig;
@@ -224,7 +225,7 @@ export class ChurchAudioEngine {
     this.isRunning = true;
     this.startMeterLoop();
     this.startContinuousStreamRecorder();
-    this.startSegmentedRecorder();
+    this.startPcmWavChunker();
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -266,7 +267,8 @@ export class ChurchAudioEngine {
     if (this.isRunning && (prevBypass !== this.config.bypassOsProcessing || prevDevice !== this.config.selectedDeviceId)) {
       void this.restart();
     } else if (this.isRunning && prevChunkSec !== this.config.chunkDurationSec) {
-      this.restartSegmentedRecorder();
+      this.pcmChunks = [];
+      this.pcmSampleCount = 0;
     }
   }
 
@@ -277,11 +279,31 @@ export class ChurchAudioEngine {
 
   public stop(): void {
     this.isRunning = false;
-    this.accumulatedSlices = [];
+    this.pcmChunks = [];
+    this.pcmSampleCount = 0;
 
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);
       this.meterFrameId = null;
+    }
+
+    if (this.scriptProcessorNode) {
+      try {
+        this.scriptProcessorNode.disconnect();
+        this.scriptProcessorNode.onaudioprocess = null;
+      } catch {
+        // Ignore
+      }
+      this.scriptProcessorNode = null;
+    }
+
+    if (this.silentGainNode) {
+      try {
+        this.silentGainNode.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.silentGainNode = null;
     }
 
     if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
@@ -292,15 +314,6 @@ export class ChurchAudioEngine {
       }
     }
     this.continuousStreamingRecorder = null;
-
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      try {
-        this.mediaRecorder.stop();
-      } catch {
-        // Ignore recorder stop errors during teardown
-      }
-    }
-    this.mediaRecorder = null;
 
     if (this.rawStream) {
       this.rawStream.getTracks().forEach((track) => track.stop());
@@ -364,74 +377,83 @@ export class ChurchAudioEngine {
     }
   }
 
-  private startSegmentedRecorder(): void {
-    if (!this.destinationNode || !this.isRunning) return;
+  private startPcmWavChunker(): void {
+    if (!this.audioContext || !this.compressorNode || !this.isRunning) return;
 
-    const mimeType = this.getSupportedMimeType();
-    try {
-      // Segmented recorder: runs in discrete chunks so EVERY chunk file has a 100% valid WebM EBML container header
-      const recorder = mimeType
-        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
-        : new MediaRecorder(this.destinationNode.stream);
+    this.pcmChunks = [];
+    this.pcmSampleCount = 0;
+    const sampleRate = this.audioContext.sampleRate;
+    const targetDurationSec = this.config.chunkDurationSec || 3.5;
+    const targetSamples = Math.round(targetDurationSec * sampleRate);
 
-      this.accumulatedSlices = [];
-      this.segmentStartTime = performance.now();
+    // Standard 4096-sample buffer size for glitch-free PCM capture directly from the DSP chain
+    this.scriptProcessorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.silentGainNode = this.audioContext.createGain();
+    this.silentGainNode.gain.value = 0;
 
-      recorder.ondataavailable = (ev) => {
-        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
-        this.accumulatedSlices.push(ev.data);
-      };
+    let chunkStartTime = performance.now();
 
-      recorder.onstop = () => {
-        if (this.accumulatedSlices.length > 0) {
-          const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-          const fullBlob = new Blob(this.accumulatedSlices, { type: actualMime });
-          const duration = Math.round(performance.now() - this.segmentStartTime);
-          this.accumulatedSlices = [];
-          this.onAudioChunk(fullBlob, actualMime, duration);
+    this.scriptProcessorNode.onaudioprocess = (e) => {
+      if (!this.isRunning) return;
+      const inputData = e.inputBuffer.getChannelData(0);
+      const copy = new Float32Array(inputData);
+      this.pcmChunks.push(copy);
+      this.pcmSampleCount += copy.length;
+
+      if (this.pcmSampleCount >= targetSamples) {
+        const merged = new Float32Array(this.pcmSampleCount);
+        let offset = 0;
+        for (const piece of this.pcmChunks) {
+          merged.set(piece, offset);
+          offset += piece.length;
         }
 
-        // Seamlessly cycle to the next recording segment with a fresh WebM container header
-        if (this.isRunning) {
-          this.startSegmentedRecorder();
-        }
-      };
+        const duration = Math.round(performance.now() - chunkStartTime);
+        const wavBlob = this.encodeWav(merged, sampleRate);
+        this.pcmChunks = [];
+        this.pcmSampleCount = 0;
+        chunkStartTime = performance.now();
 
-      recorder.onerror = (e) => {
-        console.warn('[ChurchAudioEngine] Segmented recorder error, restarting:', e);
-        if (this.isRunning) {
-          window.setTimeout(() => this.startSegmentedRecorder(), 300);
-        }
-      };
+        this.onAudioChunk(wavBlob, 'audio/wav', duration);
+      }
+    };
 
-      this.mediaRecorder = recorder;
-      recorder.start(250);
-
-      const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
-      window.setTimeout(() => {
-        if (this.isRunning && recorder.state === 'recording') {
-          try {
-            recorder.stop();
-          } catch {
-            // Ignore stop errors
-          }
-        }
-      }, targetDurationMs);
-    } catch (err) {
-      console.error('[ChurchAudioEngine] Failed to start segmented audio recorder:', err);
-    }
+    this.compressorNode.connect(this.scriptProcessorNode);
+    this.scriptProcessorNode.connect(this.silentGainNode);
+    this.silentGainNode.connect(this.audioContext.destination);
   }
 
-  private restartSegmentedRecorder(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-      try {
-        this.mediaRecorder.stop();
-      } catch {
-        // Ignore
+  private encodeWav(samples: Float32Array, sampleRate: number): Blob {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
       }
-    } else if (this.isRunning) {
-      this.startSegmentedRecorder();
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // Linear PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // Byte rate (sampleRate * 1 ch * 2 bytes)
+    view.setUint16(32, 2, true); // Block align
+    view.setUint16(34, 16, true); // Bits per sample
+    writeString(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
     }
+
+    return new Blob([buffer], { type: 'audio/wav' });
   }
 
   private startMeterLoop(): void {

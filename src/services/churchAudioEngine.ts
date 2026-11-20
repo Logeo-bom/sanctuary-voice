@@ -223,13 +223,7 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
-    if (this.onStreamingSlice) {
-      // Single dedicated continuous stream recorder for live WebSocket (avoids Android Chrome dual-recorder stall)
-      this.startContinuousStreamRecorder();
-    } else {
-      // Standalone segmented 3.5s recorder for REST / Gemini fallback
-      this.startSegmentedRecorder();
-    }
+    this.startUnifiedRecorder();
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -323,7 +317,7 @@ export class ChurchAudioEngine {
   }
 
   public restartContinuousStreamRecorder(): void {
-    if (!this.isRunning || !this.destinationNode || !this.onStreamingSlice) return;
+    if (!this.isRunning || !this.destinationNode) return;
     if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
       try {
         this.continuousStreamingRecorder.ondataavailable = null;
@@ -333,33 +327,10 @@ export class ChurchAudioEngine {
       }
     }
     this.continuousStreamingRecorder = null;
-    this.startContinuousStreamRecorder();
+    this.startUnifiedRecorder();
   }
 
-  private startContinuousStreamRecorder(): void {
-    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
-
-    const mimeType = this.getSupportedMimeType();
-    try {
-      // Dedicated single long-running continuous stream for the live WebSocket
-      // This sends chunk 0 (WebM Header) once, followed by seamless continuous 250ms audio slices
-      const streamRecorder = mimeType
-        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
-        : new MediaRecorder(this.destinationNode.stream);
-
-      streamRecorder.ondataavailable = (ev) => {
-        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
-        this.onStreamingSlice?.(ev.data);
-      };
-
-      this.continuousStreamingRecorder = streamRecorder;
-      streamRecorder.start(250);
-    } catch (err) {
-      console.warn('Failed to start dedicated streaming WebSocket recorder:', err);
-    }
-  }
-
-  private startSegmentedRecorder(): void {
+  private startUnifiedRecorder(): void {
     if (!this.destinationNode || !this.isRunning) return;
 
     const mimeType = this.getSupportedMimeType();
@@ -374,51 +345,42 @@ export class ChurchAudioEngine {
       recorder.ondataavailable = (ev) => {
         if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
 
-        // Accumulate slices for REST / Gemini full-segment translation
+        // 1. Instant 250ms streaming slice for Live WebSocket
+        this.onStreamingSlice?.(ev.data);
+
+        // 2. Accumulate slices for 3.5s watchdog REST chunk
         this.accumulatedSlices.push(ev.data);
         const elapsed = performance.now() - this.segmentStartTime;
         const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
 
         if (elapsed >= targetDurationMs) {
-          if (recorder.state === 'recording') {
-            try {
-              recorder.stop();
-            } catch {}
+          if (this.accumulatedSlices.length > 0) {
+            const actualMime = recorder.mimeType || mimeType || 'audio/webm';
+            const chunkBlob = new Blob(this.accumulatedSlices, { type: actualMime });
+            const duration = Math.round(elapsed);
+            this.accumulatedSlices = [];
+            this.segmentStartTime = performance.now();
+            this.onAudioChunk(chunkBlob, actualMime, duration);
           }
         }
       };
 
-      recorder.onstop = () => {
-        if (this.accumulatedSlices.length > 0) {
-          const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-          const fullBlob = new Blob(this.accumulatedSlices, { type: actualMime });
-          const duration = Math.round(performance.now() - this.segmentStartTime);
-          this.accumulatedSlices = [];
-          this.onAudioChunk(fullBlob, actualMime, duration);
-        }
-
-        // Seamlessly start the next recording segment with a fresh WebM container header
+      recorder.onerror = (e) => {
+        console.warn('[ChurchAudioEngine] Unified recorder error, restarting:', e);
         if (this.isRunning) {
-          this.startSegmentedRecorder();
+          window.setTimeout(() => this.startUnifiedRecorder(), 500);
         }
       };
 
-      this.mediaRecorder = recorder;
+      this.continuousStreamingRecorder = recorder;
       recorder.start(250);
     } catch (err) {
-      console.error('Failed to start continuous audio recorder:', err);
+      console.error('[ChurchAudioEngine] Failed to start unified audio recorder:', err);
     }
   }
 
   private restartSegmentedRecorder(): void {
-    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-      try {
-        this.mediaRecorder.stop();
-      } catch {
-        // Ignore
-      }
-    }
-    this.startSegmentedRecorder();
+    this.restartContinuousStreamRecorder();
   }
 
   private startMeterLoop(): void {

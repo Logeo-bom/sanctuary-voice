@@ -110,7 +110,7 @@ export function App() {
     try {
       const saved = localStorage.getItem('sanctuary_font_size');
       if (saved === 'normal' || saved === 'large' || saved === 'xl') return saved;
-    } catch {}
+    } catch { }
     return 'large';
   });
 
@@ -119,7 +119,7 @@ export function App() {
       const next = prev === 'normal' ? 'large' : prev === 'large' ? 'xl' : 'normal';
       try {
         localStorage.setItem('sanctuary_font_size', next);
-      } catch {}
+      } catch { }
       return next;
     });
   }, []);
@@ -152,7 +152,7 @@ export function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_SPEECH_CONFIG);
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch { }
     return {
       enabled: true,
       speechRate: 1.05,
@@ -198,7 +198,7 @@ export function App() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CHURCH_GLOSSARY);
       if (saved) return JSON.parse(saved);
-    } catch {}
+    } catch { }
     return ['Pastor Velasquez', 'Hallelujah', 'Maranatha', 'Sanctuary'];
   });
   const customChurchGlossaryRef = useRef<string[]>(customChurchGlossary);
@@ -226,6 +226,7 @@ export function App() {
   const deepgramKeyRef = useRef<string>(deepgramKey);
   const aiProviderRef = useRef<'deepgram' | 'gemini'>(aiProvider);
   const segmentsRef = useRef<TranslationSegment[]>(segments);
+  const lastWebSocketActivityRef = useRef<number>(0);
   const isSettingsOpenRef = useRef<boolean>(isSettingsOpen);
   const isScriptureExpandedRef = useRef<boolean>(isScriptureExpanded);
   const activeScriptureRef = useRef<ScriptureData | null>(activeScripture);
@@ -466,11 +467,11 @@ export function App() {
       prev.map((s) =>
         s.id === 'speaker_1'
           ? {
-              ...s,
-              detectedLanguageCode: newLangCode,
-              detectedLanguageName:
-                newLangCode === 'auto' ? 'Auto' : langMeta?.name || newLangCode,
-            }
+            ...s,
+            detectedLanguageCode: newLangCode,
+            detectedLanguageName:
+              newLangCode === 'auto' ? 'Auto' : langMeta?.name || newLangCode,
+          }
           : s
       )
     );
@@ -487,10 +488,10 @@ export function App() {
       prev.map((s) =>
         s.id === 'speaker_2'
           ? {
-              ...s,
-              detectedLanguageCode: newTargetCode,
-              detectedLanguageName: targetLangMeta?.name || newTargetCode,
-            }
+            ...s,
+            detectedLanguageCode: newTargetCode,
+            detectedLanguageName: targetLangMeta?.name || newTargetCode,
+          }
           : s
       )
     );
@@ -561,8 +562,8 @@ export function App() {
       boostPreset === 'normal'
         ? 'pew'
         : boostPreset === 'pew'
-        ? 'back-row'
-        : 'normal';
+          ? 'back-row'
+          : 'normal';
     setBoostPreset(next);
     const gainDb = next === 'normal' ? 2 : next === 'pew' ? 12 : 22;
     setAudioConfig((prev) => {
@@ -656,8 +657,8 @@ export function App() {
             targetSpeakerId === 'speaker_1'
               ? 'Pastor'
               : targetSpeakerId === 'speaker_2'
-              ? 'Translator 2'
-              : params.speakerLabel,
+                ? 'Translator 2'
+                : params.speakerLabel,
           roleHint: targetRoleHint,
           detectedLanguageCode: shouldUpdateSpeakerLang ? incomingLang : 'auto',
           detectedLanguageName: shouldUpdateSpeakerLang ? incomingLangName : 'Auto',
@@ -677,10 +678,10 @@ export function App() {
           targetSpeakerId === 'speaker_1' && manualLang1
             ? manualLang1
             : keepExistingLang
-            ? speaker.detectedLanguageCode
-            : shouldUpdateSpeakerLang
-            ? incomingLang
-            : speaker.detectedLanguageCode;
+              ? speaker.detectedLanguageCode
+              : shouldUpdateSpeakerLang
+                ? incomingLang
+                : speaker.detectedLanguageCode;
         const nextLangMeta = SUPPORTED_LANGUAGES.find((l) => l.code === nextLangCode);
 
         speaker = {
@@ -689,8 +690,8 @@ export function App() {
             targetSpeakerId === 'speaker_1'
               ? (speaker.label === 'Speaker 1' ? 'Pastor' : speaker.label)
               : targetSpeakerId === 'speaker_2'
-              ? (speaker.label === 'Speaker 2' ? 'Translator 2' : speaker.label)
-              : speaker.label,
+                ? (speaker.label === 'Speaker 2' ? 'Translator 2' : speaker.label)
+                : speaker.label,
           roleHint: targetRoleHint || speaker.roleHint,
           detectedLanguageCode: nextLangCode,
           detectedLanguageName:
@@ -753,7 +754,7 @@ export function App() {
           }
           // Incoming is subset/tail of last segment
           if ((normLast.endsWith(normIncoming) && normIncoming.length < 50) ||
-              (normTransLast.endsWith(normTransIncoming) && normTransIncoming.length < 50)) {
+            (normTransLast.endsWith(normTransIncoming) && normTransIncoming.length < 50)) {
             return;
           }
           // Incoming is a fuller expansion of the last short fragment
@@ -800,6 +801,14 @@ export function App() {
       const activeProvider = aiProviderRef.current;
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;
+
+      // Redundancy watchdog: If live WebSocket is actively producing translations within last 4.5 seconds,
+      // skip REST chunk to avoid double-translation
+      const timeSinceWs = Date.now() - lastWebSocketActivityRef.current;
+      const isWsActivelyProducing = Boolean(deepgramWsRef.current?.isConnected() && timeSinceWs < 4500);
+      if (isWsActivelyProducing) {
+        return;
+      }
 
       // 1. Process with Deepgram Nova-2 as Primary (Serverless backend proxy or client key)
       if (activeProvider === 'deepgram') {
@@ -982,7 +991,7 @@ export function App() {
           console.warn('[Gemini Direct Error]:', err);
           const rawMsg = err instanceof Error ? err.message : String(err);
           const isQuota = rawMsg.includes('429') || rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('resource_exhausted');
-          
+
           if (isQuota) {
             // Auto-fallback silently to Deepgram so streaming never stops for the user
             console.log('[Auto-Fallback] Gemini quota reached, automatically engaging Deepgram stream.');
@@ -990,7 +999,7 @@ export function App() {
             aiProviderRef.current = 'deepgram';
             try {
               localStorage.setItem(STORAGE_KEY_AI_PROVIDER, 'deepgram');
-            } catch {}
+            } catch { }
             // Retry this current chunk immediately via Deepgram
             try {
               const retryDg = await transcribeAndTranslateWithDeepgram({
@@ -1097,6 +1106,7 @@ export function App() {
             speaker1LangRef.current,
             targetLangRef.current,
             (seg) => {
+              lastWebSocketActivityRef.current = Date.now();
               upsertSpeakerAndAppendSegment({
                 speakerId: seg.speakerId,
                 speakerLabel: seg.speakerLabel,
@@ -1130,15 +1140,11 @@ export function App() {
         }
       }
 
-      const useLiveWebSocket = Boolean(aiProviderRef.current === 'deepgram' && deepgramWsRef.current);
-
       const engine = new ChurchAudioEngine(
         audioConfig,
         (blob, mime, dur) => {
-          // Complete 3.5s standalone audio chunk with full container headers for Gemini / REST fallback
-          if (!deepgramWsRef.current?.isConnected()) {
-            void handleAudioChunkReady(blob, mime, dur);
-          }
+          // Unified watchdog chunk: automatically transcribes if WebSocket is quiet for >4.5s
+          void handleAudioChunkReady(blob, mime, dur);
         },
         (snapshot) => setMeter(snapshot),
         () => {
@@ -1147,14 +1153,12 @@ export function App() {
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
         },
-        useLiveWebSocket
-          ? (sliceBlob) => {
-              // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
-              if (deepgramWsRef.current && deepgramWsRef.current.isConnected()) {
-                deepgramWsRef.current.sendAudio(sliceBlob);
-              }
-            }
-          : undefined
+        (sliceBlob) => {
+          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
+          if (deepgramWsRef.current && deepgramWsRef.current.isConnected()) {
+            deepgramWsRef.current.sendAudio(sliceBlob);
+          }
+        }
       );
       await engine.start(audioConfig.audioSource || 'mic');
       audioEngineRef.current = engine;
@@ -1216,15 +1220,15 @@ export function App() {
     fontSizeScale === 'xl'
       ? 'text-xl leading-relaxed'
       : fontSizeScale === 'large'
-      ? 'text-lg leading-relaxed'
-      : 'text-base leading-relaxed';
+        ? 'text-lg leading-relaxed'
+        : 'text-base leading-relaxed';
 
   const originalTextSizeClass =
     fontSizeScale === 'xl'
       ? 'text-xs'
       : fontSizeScale === 'large'
-      ? 'text-[11px]'
-      : 'text-[10px]';
+        ? 'text-[11px]'
+        : 'text-[10px]';
 
   const renderContinuousStream = (
     segmentList: TranslationSegment[],
@@ -1271,19 +1275,17 @@ export function App() {
           return (
             <div
               key={`turn_${turn.speakerId}_${turn.timestamp}_${tIdx}`}
-              className={`rounded-2xl transition-all duration-300 overflow-hidden ${
-                isLatestTurn
+              className={`rounded-2xl transition-all duration-300 overflow-hidden ${isLatestTurn
                   ? 'bg-slate-900/90 border border-sky-500/30 shadow-lg'
                   : 'bg-slate-900/60 border border-slate-800/80 hover:border-slate-700/80'
-              } ${isCompact ? 'p-3' : 'p-3.5'}`}
+                } ${isCompact ? 'p-3' : 'p-3.5'}`}
             >
               {/* Speaker Header Bar */}
               <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-800/80">
                 <div className="flex items-center gap-2 min-w-0">
                   <span
-                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                      isLatestTurn && isListening ? 'animate-pulse ring-2 ring-sky-400' : ''
-                    }`}
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${isLatestTurn && isListening ? 'animate-pulse ring-2 ring-sky-400' : ''
+                      }`}
                     style={{ backgroundColor: turn.accentColor }}
                   />
                   <span className="text-xs font-bold text-slate-100 truncate">
@@ -1406,15 +1408,15 @@ export function App() {
       fontSizeScale === 'large'
         ? 'text-2xl sm:text-3xl'
         : fontSizeScale === 'xl'
-        ? 'text-3xl sm:text-4xl'
-        : 'text-xl sm:text-2xl';
+          ? 'text-3xl sm:text-4xl'
+          : 'text-xl sm:text-2xl';
 
     const originalTextSizeClass =
       fontSizeScale === 'large'
         ? 'text-sm'
         : fontSizeScale === 'xl'
-        ? 'text-base'
-        : 'text-xs';
+          ? 'text-base'
+          : 'text-xs';
 
     return (
       <div className="h-full flex flex-col justify-between py-2 space-y-4">
@@ -1538,9 +1540,8 @@ export function App() {
             apiKeyRef.current
           )
         }
-        className={`rounded-2xl bg-slate-900/90 border border-slate-800/90 hover:border-slate-700 transition cursor-pointer ${
-          compact ? 'p-3' : 'p-4'
-        }`}
+        className={`rounded-2xl bg-slate-900/90 border border-slate-800/90 hover:border-slate-700 transition cursor-pointer ${compact ? 'p-3' : 'p-4'
+          }`}
       >
         <div className="flex items-center justify-between gap-2 mb-1">
           <div className="flex items-center gap-1.5">
@@ -1567,9 +1568,8 @@ export function App() {
         )}
 
         <p
-          className={`${
-            compact ? 'text-base' : textSizeClass
-          } font-semibold text-white leading-snug`}
+          className={`${compact ? 'text-base' : textSizeClass
+            } font-semibold text-white leading-snug`}
         >
           {seg.translatedText}
         </p>
@@ -1619,11 +1619,10 @@ export function App() {
             <button
               type="button"
               onClick={() => setIsFocusMode((prev) => !prev)}
-              className={`p-1.5 rounded-full transition cursor-pointer ${
-                isFocusMode
+              className={`p-1.5 rounded-full transition cursor-pointer ${isFocusMode
                   ? 'bg-sky-500 text-slate-950 shadow-sm'
                   : 'bg-slate-900 text-slate-400 hover:text-white'
-              }`}
+                }`}
               title={isFocusMode ? 'Show controls' : 'Pew Focus Mode (Full Screen Subtitles)'}
             >
               {isFocusMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -1754,9 +1753,8 @@ export function App() {
                   })()
                 )}
                 <ChevronDown
-                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
-                    isVoiceDropdownOpen ? 'rotate-180 text-white' : ''
-                  }`}
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isVoiceDropdownOpen ? 'rotate-180 text-white' : ''
+                    }`}
                 />
               </button>
 
@@ -1781,11 +1779,10 @@ export function App() {
                         setIsVoiceDropdownOpen(false);
                         speechEngineRef.current?.stopAll();
                       }}
-                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
-                        voiceViewMode === 'auto'
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${voiceViewMode === 'auto'
                           ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
                           : 'text-slate-300 hover:bg-slate-800/70'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
@@ -1805,11 +1802,10 @@ export function App() {
                         setIsVoiceDropdownOpen(false);
                         speechEngineRef.current?.stopAll();
                       }}
-                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
-                        voiceViewMode === 'all'
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${voiceViewMode === 'all'
                           ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
                           : 'text-slate-300 hover:bg-slate-800/70'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2">
                         <Radio className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -1833,19 +1829,18 @@ export function App() {
                               : 'Auto'
                             : speaker1SourceLang.toUpperCase()
                           : spk.detectedLanguageCode && spk.detectedLanguageCode !== 'auto'
-                          ? spk.detectedLanguageCode.toUpperCase()
-                          : 'Auto';
+                            ? spk.detectedLanguageCode.toUpperCase()
+                            : 'Auto';
 
                       return (
                         <div
                           key={spk.id}
-                          className={`w-full px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition ${
-                            isSelected
+                          className={`w-full px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition ${isSelected
                               ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30 font-semibold'
                               : spk.isIgnored
-                              ? 'text-slate-500 line-through opacity-60'
-                              : 'text-slate-300 hover:bg-slate-800/70'
-                          }`}
+                                ? 'text-slate-500 line-through opacity-60'
+                                : 'text-slate-300 hover:bg-slate-800/70'
+                            }`}
                         >
                           <button
                             type="button"
@@ -1860,9 +1855,8 @@ export function App() {
                             className="flex items-center gap-2 flex-1 text-left cursor-pointer min-w-0"
                           >
                             <span
-                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                isActiveSpeaking && isListening && !spk.isIgnored ? 'animate-pulse ring-2 ring-sky-400' : ''
-                              }`}
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${isActiveSpeaking && isListening && !spk.isIgnored ? 'animate-pulse ring-2 ring-sky-400' : ''
+                                }`}
                               style={{ backgroundColor: spk.isIgnored ? '#64748b' : spk.accentColor }}
                             />
                             <div className="min-w-0 truncate">
@@ -1879,11 +1873,10 @@ export function App() {
                                 e.stopPropagation();
                                 toggleIgnoreSpeaker(spk.id);
                               }}
-                              className={`p-1 rounded-lg transition cursor-pointer ${
-                                spk.isIgnored
+                              className={`p-1 rounded-lg transition cursor-pointer ${spk.isIgnored
                                   ? 'text-rose-400 bg-rose-500/10'
                                   : 'text-slate-500 hover:text-rose-400 hover:bg-slate-800'
-                              }`}
+                                }`}
                               title={spk.isIgnored ? `Unmute ${spk.label}` : `Mute / ignore ${spk.label}`}
                             >
                               <VolumeX className="w-3.5 h-3.5" />
@@ -1901,11 +1894,10 @@ export function App() {
                         setIsVoiceDropdownOpen(false);
                         speechEngineRef.current?.stopAll();
                       }}
-                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${
-                        voiceViewMode === 'split'
+                      className={`w-full px-2.5 py-2 rounded-xl text-left text-xs font-semibold flex items-center justify-between transition cursor-pointer ${voiceViewMode === 'split'
                           ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                           : 'text-slate-300 hover:bg-slate-800/70'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center gap-2">
                         <Rows2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -1968,11 +1960,10 @@ export function App() {
             <button
               type="button"
               onClick={() => setDisplayStyle('continuous')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                displayStyle === 'continuous'
+              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${displayStyle === 'continuous'
                   ? 'bg-sky-500 text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
               title="Continuous live transcript flow"
             >
               <AlignLeft className="w-3 h-3" />
@@ -1981,11 +1972,10 @@ export function App() {
             <button
               type="button"
               onClick={() => setDisplayStyle('live')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                displayStyle === 'live'
+              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${displayStyle === 'live'
                   ? 'bg-sky-500 text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
               title="Focused Live Teleprompter for active speaker"
             >
               <Tv className="w-3 h-3" />
@@ -1994,11 +1984,10 @@ export function App() {
             <button
               type="button"
               onClick={() => setDisplayStyle('cards')}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                displayStyle === 'cards'
+              className={`px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${displayStyle === 'cards'
                   ? 'bg-sky-500 text-slate-950 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
               title="Individual segment cards"
             >
               <LayoutGrid className="w-3 h-3" />
@@ -2010,11 +1999,10 @@ export function App() {
             <button
               type="button"
               onClick={() => setShowOriginalText((prev) => !prev)}
-              className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${
-                showOriginalText
+              className={`text-[10px] px-2 py-0.5 rounded-md border transition cursor-pointer ${showOriginalText
                   ? 'bg-slate-900 border-sky-500/40 text-sky-300 font-medium'
                   : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-400'
-              }`}
+                }`}
               title="Toggle original church speech subtitles"
             >
               {showOriginalText ? 'Original: ON' : 'Original: OFF'}
@@ -2080,9 +2068,8 @@ export function App() {
 
             <p
               onClick={() => setIsScriptureExpanded((prev) => !prev)}
-              className={`text-xs text-amber-100/90 leading-relaxed cursor-pointer ${
-                isScriptureExpanded ? '' : 'line-clamp-2'
-              }`}
+              className={`text-xs text-amber-100/90 leading-relaxed cursor-pointer ${isScriptureExpanded ? '' : 'line-clamp-2'
+                }`}
             >
               “{activeScripture.text}”
             </p>
@@ -2172,8 +2159,8 @@ export function App() {
                 {isOfflineEdgeActive
                   ? 'Offline Sanctuary Mode Active'
                   : meter.isVoiceDetected
-                  ? 'Voice Detected'
-                  : 'Listening for Voice...'} {!isOfflineEdgeActive && `(${meter.rmsDb} dB)`}
+                    ? 'Voice Detected'
+                    : 'Listening for Voice...'} {!isOfflineEdgeActive && `(${meter.rmsDb} dB)`}
               </span>
               <span>
                 Engine: {isOfflineEdgeActive ? 'On-Device NPU/Edge' : deepgramWsRef.current ? 'Live WebSocket + DeepL' : 'Direct REST'}
@@ -2191,12 +2178,12 @@ export function App() {
                   {voiceViewMode === 'auto'
                     ? 'Auto-Follow Active Speaker'
                     : voiceViewMode === 'speaker_1'
-                    ? 'Continuous Stream • Speaker 1'
-                    : voiceViewMode === 'speaker_2'
-                    ? 'Continuous Stream • Translator 2'
-                    : voiceViewMode === 'split'
-                    ? '2-Window Split Mode Ready'
-                    : 'Ready in Church (Continuous Stream)'}
+                      ? 'Continuous Stream • Speaker 1'
+                      : voiceViewMode === 'speaker_2'
+                        ? 'Continuous Stream • Translator 2'
+                        : voiceViewMode === 'split'
+                          ? '2-Window Split Mode Ready'
+                          : 'Ready in Church (Continuous Stream)'}
                 </h2>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Put your earphones on and tap the microphone below or switch to TAB / Online Sermon to stream live church audio.
@@ -2214,8 +2201,8 @@ export function App() {
                       ? 'Auto-Detect'
                       : SUPPORTED_LANGUAGES.find((l) => l.code === speaker1SourceLang)?.name || speaker1SourceLang
                     : spk.id === 'speaker_2'
-                    ? SUPPORTED_LANGUAGES.find((l) => l.code === targetLangCode)?.name || targetLangCode
-                    : spk.detectedLanguageName;
+                      ? SUPPORTED_LANGUAGES.find((l) => l.code === targetLangCode)?.name || targetLangCode
+                      : spk.detectedLanguageName;
 
                 return (
                   <div
@@ -2225,9 +2212,8 @@ export function App() {
                     <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-[11px]">
                       <div className="flex items-center gap-1.5 font-bold text-slate-200">
                         <span
-                          className={`w-2 h-2 rounded-full ${
-                            activeSpeakerId === spk.id && isListening ? 'animate-pulse' : ''
-                          }`}
+                          className={`w-2 h-2 rounded-full ${activeSpeakerId === spk.id && isListening ? 'animate-pulse' : ''
+                            }`}
                           style={{ backgroundColor: spk.accentColor }}
                         />
                         {spk.label} • {displayName}
@@ -2307,11 +2293,10 @@ export function App() {
                   setAudioConfig((prev) => ({ ...prev, audioSource: 'mic' }));
                   setErrorNotice(null);
                 }}
-                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  (audioConfig.audioSource || 'mic') === 'mic'
+                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${(audioConfig.audioSource || 'mic') === 'mic'
                     ? 'bg-sky-500 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 <Mic className="w-3 h-3" />
                 Mic (Room)
@@ -2327,11 +2312,10 @@ export function App() {
                   setAudioConfig((prev) => ({ ...prev, audioSource: 'tab' }));
                   setErrorNotice(null);
                 }}
-                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  audioConfig.audioSource === 'tab'
+                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${audioConfig.audioSource === 'tab'
                     ? 'bg-emerald-400 text-slate-950 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
-                }`}
+                  }`}
                 title="Capture browser tab audio directly (Desktop Chrome/Edge/Brave)"
               >
                 <Tv className="w-3 h-3" />
@@ -2352,11 +2336,10 @@ export function App() {
               className="flex flex-col items-center gap-1 w-20 cursor-pointer"
             >
               <div
-                className={`w-11 h-11 rounded-full flex items-center justify-center border transition ${
-                  speechConfig.enabled
+                className={`w-11 h-11 rounded-full flex items-center justify-center border transition ${speechConfig.enabled
                     ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                     : 'bg-slate-900 border-slate-800 text-slate-500'
-                }`}
+                  }`}
               >
                 {speechConfig.enabled ? (
                   <Headphones className="w-5 h-5" />
@@ -2374,13 +2357,12 @@ export function App() {
               <button
                 type="button"
                 onClick={toggleLiveMicrophone}
-                className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition transform active:scale-95 cursor-pointer relative ${
-                  isListening
+                className={`w-16 h-16 rounded-full flex items-center justify-center shadow-xl transition transform active:scale-95 cursor-pointer relative ${isListening
                     ? 'bg-rose-500 text-slate-950 shadow-rose-500/30'
                     : audioConfig.audioSource === 'tab'
-                    ? 'bg-emerald-400 text-slate-950 shadow-emerald-500/30'
-                    : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
-                }`}
+                      ? 'bg-emerald-400 text-slate-950 shadow-emerald-500/30'
+                      : 'bg-sky-500 text-slate-950 shadow-sky-500/30'
+                  }`}
               >
                 {isListening && meter.isVoiceDetected && (
                   <span className="absolute inset-0 rounded-full border-2 border-rose-400 animate-ping opacity-40" />
@@ -2401,8 +2383,8 @@ export function App() {
                     ? 'Stop Tab Stream'
                     : 'Tap to Stop Mic'
                   : audioConfig.audioSource === 'tab'
-                  ? 'Capture Tab Audio'
-                  : 'Tap to Listen'}
+                    ? 'Capture Tab Audio'
+                    : 'Tap to Listen'}
               </span>
             </div>
 
@@ -2414,13 +2396,12 @@ export function App() {
               title="Tap to boost weak church loudspeakers when sitting far back"
             >
               <div
-                className={`w-11 h-11 rounded-full flex items-center justify-center border text-xs font-bold transition ${
-                  boostPreset === 'back-row'
+                className={`w-11 h-11 rounded-full flex items-center justify-center border text-xs font-bold transition ${boostPreset === 'back-row'
                     ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
                     : boostPreset === 'pew'
-                    ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
-                    : 'bg-slate-900 border-slate-800 text-slate-400'
-                }`}
+                      ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                      : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
               >
                 +{audioConfig.preAmpGainDb}dB
               </div>
@@ -2428,8 +2409,8 @@ export function App() {
                 {boostPreset === 'back-row'
                   ? 'Back Row Max'
                   : boostPreset === 'pew'
-                  ? 'Pew Boost'
-                  : 'Front Row'}
+                    ? 'Pew Boost'
+                    : 'Front Row'}
               </span>
             </button>
           </div>
@@ -2463,7 +2444,7 @@ export function App() {
               speechEngineRef.current?.updateConfig(partial);
               try {
                 localStorage.setItem(STORAGE_KEY_SPEECH_CONFIG, JSON.stringify(updated));
-              } catch {}
+              } catch { }
               return updated;
             });
           }}

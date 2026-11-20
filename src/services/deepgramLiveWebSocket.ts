@@ -235,8 +235,8 @@ export class DeepgramLiveWebSocket {
       const cleanLast = this.lastFlushedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
       const cleanCurrent = fullOriginalSentence.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
 
-      // Clean duplicate check: ignore if identical sentence was already flushed within 10 seconds
-      if (cleanCurrent && (cleanCurrent === cleanLast || cleanLast.endsWith(cleanCurrent)) && now - this.lastFlushedAt < 10000) {
+      // Clean duplicate check: ignore if exact identical sentence was already flushed within 6 seconds
+      if (cleanCurrent && cleanCurrent === cleanLast && now - this.lastFlushedAt < 6000) {
         return;
       }
 

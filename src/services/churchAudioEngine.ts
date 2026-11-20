@@ -174,12 +174,12 @@ export class ChurchAudioEngine {
     this.vocalPresenceNode.Q.value = 1.0;
     this.vocalPresenceNode.gain.value = 2.5;
 
-    // 4. De-Esser Notch (Bard's sheet: manual EQ notch around 5-10kHz to soften harsh 's' and 'sh' from PA)
+    // 4. De-Esser Notch (Bard & Junie: 5kHz–8kHz notch, -2.5dB at 6.5kHz to soften harsh 's' and 'sh')
     this.deEsserNode = this.audioContext.createBiquadFilter();
     this.deEsserNode.type = 'peaking';
     this.deEsserNode.frequency.value = 6500;
     this.deEsserNode.Q.value = 1.5;
-    this.deEsserNode.gain.value = -2.0;
+    this.deEsserNode.gain.value = -2.5;
 
     // 5. High Cut Filter (Bard's sheet: gently cut above 15kHz to reduce harshness/hiss)
     this.highCutNode = this.audioContext.createBiquadFilter();
@@ -223,7 +223,8 @@ export class ChurchAudioEngine {
 
     this.isRunning = true;
     this.startMeterLoop();
-    this.startUnifiedRecorder();
+    this.startContinuousStreamRecorder();
+    this.startSegmentedRecorder();
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -237,9 +238,19 @@ export class ChurchAudioEngine {
       this.highPassNode.frequency.value = newConfig.highPassHz;
     }
 
-    if (this.synthNotchNode && this.vocalPresenceNode && newConfig.synthPadFilterEnabled !== undefined) {
-      this.synthNotchNode.gain.value = newConfig.synthPadFilterEnabled ? -6.5 : 0;
-      this.vocalPresenceNode.gain.value = newConfig.synthPadFilterEnabled ? 5.5 : 0;
+    if (this.synthNotchNode && newConfig.synthPadFilterEnabled !== undefined) {
+      this.synthNotchNode.gain.value = newConfig.synthPadFilterEnabled ? -6.0 : 0;
+    }
+
+    if (this.vocalPresenceNode && newConfig.synthPadFilterEnabled !== undefined) {
+      // Junie & Bard recommendation: gentle 2.8kHz presence boost (+2.5dB)
+      this.vocalPresenceNode.gain.value = newConfig.synthPadFilterEnabled ? 2.5 : 0;
+    }
+
+    if (this.deEsserNode) {
+      // Junie recommendation: 5kHz–8kHz notch (-2.5dB at 6.5kHz)
+      this.deEsserNode.frequency.value = 6500;
+      this.deEsserNode.gain.value = -2.5;
     }
 
     if (this.preAmpGainNode && newConfig.preAmpGainDb !== undefined) {
@@ -247,8 +258,9 @@ export class ChurchAudioEngine {
     }
 
     if (this.compressorNode && newConfig.dynamicCompressorEnabled !== undefined) {
-      this.compressorNode.threshold.value = newConfig.dynamicCompressorEnabled ? -30 : -6;
-      this.compressorNode.ratio.value = newConfig.dynamicCompressorEnabled ? 6 : 1.5;
+      // Junie & Bard recommendation: smooth -20dB 3:1 compression
+      this.compressorNode.threshold.value = newConfig.dynamicCompressorEnabled ? -20 : -6;
+      this.compressorNode.ratio.value = newConfig.dynamicCompressorEnabled ? 3 : 1.5;
     }
 
     if (this.isRunning && (prevBypass !== this.config.bypassOsProcessing || prevDevice !== this.config.selectedDeviceId)) {
@@ -327,14 +339,37 @@ export class ChurchAudioEngine {
       }
     }
     this.continuousStreamingRecorder = null;
-    this.startUnifiedRecorder();
+    this.startContinuousStreamRecorder();
   }
 
-  private startUnifiedRecorder(): void {
+  private startContinuousStreamRecorder(): void {
+    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
+
+    const mimeType = this.getSupportedMimeType();
+    try {
+      // Dedicated continuous stream for live WebSocket: sends initial WebM header once, then 250ms audio slices
+      const streamRecorder = mimeType
+        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
+        : new MediaRecorder(this.destinationNode.stream);
+
+      streamRecorder.ondataavailable = (ev) => {
+        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
+        this.onStreamingSlice?.(ev.data);
+      };
+
+      this.continuousStreamingRecorder = streamRecorder;
+      streamRecorder.start(250);
+    } catch (err) {
+      console.warn('[ChurchAudioEngine] Failed to start continuous streaming WebSocket recorder:', err);
+    }
+  }
+
+  private startSegmentedRecorder(): void {
     if (!this.destinationNode || !this.isRunning) return;
 
     const mimeType = this.getSupportedMimeType();
     try {
+      // Segmented recorder: runs in discrete chunks so EVERY chunk file has a 100% valid WebM EBML container header
       const recorder = mimeType
         ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
         : new MediaRecorder(this.destinationNode.stream);
@@ -344,43 +379,59 @@ export class ChurchAudioEngine {
 
       recorder.ondataavailable = (ev) => {
         if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
-
-        // 1. Instant 250ms streaming slice for Live WebSocket
-        this.onStreamingSlice?.(ev.data);
-
-        // 2. Accumulate slices for 3.5s watchdog REST chunk
         this.accumulatedSlices.push(ev.data);
-        const elapsed = performance.now() - this.segmentStartTime;
-        const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
+      };
 
-        if (elapsed >= targetDurationMs) {
-          if (this.accumulatedSlices.length > 0) {
-            const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-            const chunkBlob = new Blob(this.accumulatedSlices, { type: actualMime });
-            const duration = Math.round(elapsed);
-            this.accumulatedSlices = [];
-            this.segmentStartTime = performance.now();
-            this.onAudioChunk(chunkBlob, actualMime, duration);
-          }
+      recorder.onstop = () => {
+        if (this.accumulatedSlices.length > 0) {
+          const actualMime = recorder.mimeType || mimeType || 'audio/webm';
+          const fullBlob = new Blob(this.accumulatedSlices, { type: actualMime });
+          const duration = Math.round(performance.now() - this.segmentStartTime);
+          this.accumulatedSlices = [];
+          this.onAudioChunk(fullBlob, actualMime, duration);
+        }
+
+        // Seamlessly cycle to the next recording segment with a fresh WebM container header
+        if (this.isRunning) {
+          this.startSegmentedRecorder();
         }
       };
 
       recorder.onerror = (e) => {
-        console.warn('[ChurchAudioEngine] Unified recorder error, restarting:', e);
+        console.warn('[ChurchAudioEngine] Segmented recorder error, restarting:', e);
         if (this.isRunning) {
-          window.setTimeout(() => this.startUnifiedRecorder(), 500);
+          window.setTimeout(() => this.startSegmentedRecorder(), 300);
         }
       };
 
-      this.continuousStreamingRecorder = recorder;
+      this.mediaRecorder = recorder;
       recorder.start(250);
+
+      const targetDurationMs = (this.config.chunkDurationSec || 3.5) * 1000;
+      window.setTimeout(() => {
+        if (this.isRunning && recorder.state === 'recording') {
+          try {
+            recorder.stop();
+          } catch {
+            // Ignore stop errors
+          }
+        }
+      }, targetDurationMs);
     } catch (err) {
-      console.error('[ChurchAudioEngine] Failed to start unified audio recorder:', err);
+      console.error('[ChurchAudioEngine] Failed to start segmented audio recorder:', err);
     }
   }
 
   private restartSegmentedRecorder(): void {
-    this.restartContinuousStreamRecorder();
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      try {
+        this.mediaRecorder.stop();
+      } catch {
+        // Ignore
+      }
+    } else if (this.isRunning) {
+      this.startSegmentedRecorder();
+    }
   }
 
   private startMeterLoop(): void {

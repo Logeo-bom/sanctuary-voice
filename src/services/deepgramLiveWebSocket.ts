@@ -112,15 +112,19 @@ export class DeepgramLiveWebSocket {
             .slice(0, 20)
             .map((w) => `&keyterm=${encodeURIComponent(w)}`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=50&utterance_end_ms=1000${keytermParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
         } else {
           // Specific language pinned (e.g. ko, en, es, pt, etc.)
           // Nova-2 supports keywords with weight intensity (:2) across all languages
-          const keywordParams = boostedWords
-            .slice(0, 25)
+          // Filter to single words without spaces to avoid Deepgram 400 Bad Request
+          const singleWords = boostedWords
+            .flatMap((w) => w.split(/\s+/))
+            .filter((w) => w.length > 1)
+            .slice(0, 25);
+          const keywordParams = singleWords
             .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=50&utterance_end_ms=1000${keywordParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
         }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);

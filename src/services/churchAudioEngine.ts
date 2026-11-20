@@ -12,6 +12,8 @@ export class ChurchAudioEngine {
   private highPassNode: BiquadFilterNode | null = null;
   private synthNotchNode: BiquadFilterNode | null = null;
   private vocalPresenceNode: BiquadFilterNode | null = null;
+  private deEsserNode: BiquadFilterNode | null = null;
+  private highCutNode: BiquadFilterNode | null = null;
   private preAmpGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
@@ -152,10 +154,10 @@ export class ChurchAudioEngine {
 
     this.sourceNode = this.audioContext.createMediaStreamSource(this.rawStream);
 
-    // 1. High-Pass Filter (cuts stage rumble, AC hum, and synth sub-bass below 85Hz-120Hz)
+    // 1. Low Cut / High-Pass Filter (Bard's sheet: cut below 80-85Hz to remove rumble and stage vibration)
     this.highPassNode = this.audioContext.createBiquadFilter();
     this.highPassNode.type = 'highpass';
-    this.highPassNode.frequency.value = this.config.highPassHz || 90;
+    this.highPassNode.frequency.value = this.config.highPassHz || 85;
     this.highPassNode.Q.value = 0.707;
 
     // 2. Synth Pad Cut Filter (attenuates warm worship pad mud around 280Hz)
@@ -163,41 +165,56 @@ export class ChurchAudioEngine {
     this.synthNotchNode.type = 'peaking';
     this.synthNotchNode.frequency.value = 280;
     this.synthNotchNode.Q.value = 1.2;
-    this.synthNotchNode.gain.value = this.config.synthPadFilterEnabled ? -6.5 : 0;
+    this.synthNotchNode.gain.value = this.config.synthPadFilterEnabled ? -6.0 : 0;
 
-    // 3. Vocal Formant Presence Boost (boosts 2.4kHz human consonant clarity over music)
+    // 3. Mid Boost / Vocal Formant Presence (Bard's sheet: boost around 2-4kHz for clarity; +2.5dB at 2.8kHz)
     this.vocalPresenceNode = this.audioContext.createBiquadFilter();
     this.vocalPresenceNode.type = 'peaking';
-    this.vocalPresenceNode.frequency.value = 2400;
+    this.vocalPresenceNode.frequency.value = 2800;
     this.vocalPresenceNode.Q.value = 1.0;
-    this.vocalPresenceNode.gain.value = this.config.synthPadFilterEnabled ? 5.5 : 0;
+    this.vocalPresenceNode.gain.value = 2.5;
 
-    // 4. Back-Row Pre-Amp Gain Boost (0 dB to +24 dB linear conversion)
+    // 4. De-Esser Notch (Bard's sheet: manual EQ notch around 5-10kHz to soften harsh 's' and 'sh' from PA)
+    this.deEsserNode = this.audioContext.createBiquadFilter();
+    this.deEsserNode.type = 'peaking';
+    this.deEsserNode.frequency.value = 6500;
+    this.deEsserNode.Q.value = 1.5;
+    this.deEsserNode.gain.value = -2.0;
+
+    // 5. High Cut Filter (Bard's sheet: gently cut above 15kHz to reduce harshness/hiss)
+    this.highCutNode = this.audioContext.createBiquadFilter();
+    this.highCutNode.type = 'lowpass';
+    this.highCutNode.frequency.value = 14500;
+    this.highCutNode.Q.value = 0.707;
+
+    // 6. Back-Row Pre-Amp Gain Boost (linear gain from dB)
     this.preAmpGainNode = this.audioContext.createGain();
     this.preAmpGainNode.gain.value = this.dbToLinear(this.config.preAmpGainDb);
 
-    // 5. Dynamic Range Compressor (levels quiet prayers vs loud preaching)
+    // 7. Dynamic Range Compressor (Bard's sheet: Threshold around -20dB, Ratio 3:1, Attack 8ms, Release 80ms)
     this.compressorNode = this.audioContext.createDynamicsCompressor();
-    this.compressorNode.threshold.value = this.config.dynamicCompressorEnabled ? -24 : -6;
-    this.compressorNode.knee.value = 15;
-    this.compressorNode.ratio.value = this.config.dynamicCompressorEnabled ? 4 : 1.5;
-    this.compressorNode.attack.value = 0.005;
-    this.compressorNode.release.value = 0.15;
+    this.compressorNode.threshold.value = this.config.dynamicCompressorEnabled ? -20 : -6;
+    this.compressorNode.knee.value = 12;
+    this.compressorNode.ratio.value = this.config.dynamicCompressorEnabled ? 3 : 1.5;
+    this.compressorNode.attack.value = 0.008;
+    this.compressorNode.release.value = 0.080;
 
-    // 6. Analyser for live dB meter & vocal formant detection
+    // 8. Analyser for live dB meter & vocal formant detection
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = 256;
     this.analyserNode.smoothingTimeConstant = 0.65;
 
-    // 7. Destination stream carrying the DSP-boosted audio to the AI recorder
+    // 9. Destination stream carrying pristine DSP-boosted audio to the AI recorder
     this.destinationNode = this.audioContext.createMediaStreamDestination();
 
-    // Pristine, ultra-reliable hardware DSP chain:
-    // source -> highPass -> synthNotch -> vocalPresence -> preAmp -> compressor -> analyser -> destination
+    // Studio-grade vocal DSP chain:
+    // source -> highPass (85Hz) -> synthNotch (280Hz) -> midBoost (2.8kHz) -> deEsser (6.5kHz) -> highCut (14.5kHz) -> preAmp -> compressor (-20dB 3:1) -> analyser -> destination
     this.sourceNode
       .connect(this.highPassNode)
       .connect(this.synthNotchNode)
       .connect(this.vocalPresenceNode)
+      .connect(this.deEsserNode)
+      .connect(this.highCutNode)
       .connect(this.preAmpGainNode)
       .connect(this.compressorNode)
       .connect(this.analyserNode);

@@ -132,7 +132,7 @@ export function App() {
     preAmpGainDb: 12,
     synthPadFilterEnabled: true,
     dynamicCompressorEnabled: true,
-    highPassHz: 90,
+    highPassHz: 85,
     chunkDurationSec: 4,
     silenceGateDb: -48,
     selectedDeviceId: 'default',
@@ -1130,7 +1130,7 @@ export function App() {
         }
       }
 
-      const useLiveWebSocket = Boolean(deepgramWsRef.current?.isConnected());
+      const useLiveWebSocket = Boolean(aiProviderRef.current === 'deepgram' && deepgramWsRef.current);
 
       const engine = new ChurchAudioEngine(
         audioConfig,
@@ -1150,7 +1150,7 @@ export function App() {
         useLiveWebSocket
           ? (sliceBlob) => {
               // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
-              if (deepgramWsRef.current) {
+              if (deepgramWsRef.current && deepgramWsRef.current.isConnected()) {
                 deepgramWsRef.current.sendAudio(sliceBlob);
               }
             }

@@ -21,12 +21,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const text = (req.body?.text || req.query?.text || '') as string;
     const sourceLang = (req.body?.sl || req.query?.sl || 'auto') as string;
     const targetLang = (req.body?.tl || req.query?.tl || 'en') as string;
+    const context = (req.body?.context || '') as string;
 
     if (!text || text.trim().length === 0) {
       return res.status(400).json({ error: 'Missing text parameter' });
     }
 
     const trimmedText = text.trim();
+    const trimmedContext = typeof context === 'string' ? context.trim().slice(0, 600) : '';
 
     // 1. Check for DeepL API Key (either from backend env var or request header)
     const deeplKey =
@@ -49,6 +51,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (sourceLang && sourceLang !== 'auto') {
           payload.source_lang = sourceLang.toUpperCase();
+        }
+
+        // DeepL's free unbilled context parameter improves biblical phrasing and pronoun continuity
+        if (trimmedContext.length > 0) {
+          payload.context = trimmedContext;
         }
 
         const deeplRes = await fetch(deeplEndpoint, {

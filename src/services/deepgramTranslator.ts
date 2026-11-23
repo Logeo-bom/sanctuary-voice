@@ -22,6 +22,7 @@ export async function transcribeAndTranslateWithDeepgram(params: {
   deepgramApiKey?: string;
   sourceLanguageCode?: string; // 'pt', 'en', 'es', or 'auto'
   customChurchGlossary?: string[];
+  recentContext?: string;
 }): Promise<DeepgramTranslationResult> {
   const t0 = performance.now();
   const cleanMime = params.mimeType.split(';')[0] || 'audio/webm';
@@ -37,6 +38,10 @@ export async function transcribeAndTranslateWithDeepgram(params: {
 
   if (params.customChurchGlossary && params.customChurchGlossary.length > 0) {
     headers['x-custom-glossary'] = encodeURIComponent(params.customChurchGlossary.join(','));
+  }
+
+  if (params.recentContext && params.recentContext.trim().length > 0) {
+    headers['x-translation-context'] = encodeURIComponent(params.recentContext.trim().slice(0, 500));
   }
 
   if (params.deepgramApiKey && params.deepgramApiKey.trim()) {

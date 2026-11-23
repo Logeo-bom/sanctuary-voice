@@ -1,7 +1,14 @@
 import type { AudioMeterSnapshot, AudioProcessingConfig } from '../types/translator';
+import {
+  TARGET_SAMPLE_RATE,
+  downsampleTo16kHz,
+  encodeWav16kHz,
+  float32ToInt16Pcm,
+  hasSpeechActivity,
+} from '../utils/audioPcmUtils';
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
-export type AudioStreamingSliceCallback = (sliceBlob: Blob) => void;
+export type AudioStreamingSliceCallback = (pcm16Buffer: ArrayBuffer) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
 export type StreamEndedCallback = () => void;
 
@@ -17,13 +24,13 @@ export class ChurchAudioEngine {
   private preAmpGainNode: GainNode | null = null;
   private compressorNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
-  private destinationNode: MediaStreamAudioDestinationNode | null = null;
 
-  private continuousStreamingRecorder: MediaRecorder | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private scriptProcessorNode: ScriptProcessorNode | null = null;
   private silentGainNode: GainNode | null = null;
-  private pcmChunks: Float32Array[] = [];
-  private pcmSampleCount = 0;
+  private pcm16kChunks: Float32Array[] = [];
+  private pcm16kSampleCount = 0;
+  private chunkStartTime = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
   private config: AudioProcessingConfig;
@@ -205,11 +212,8 @@ export class ChurchAudioEngine {
     this.analyserNode.fftSize = 256;
     this.analyserNode.smoothingTimeConstant = 0.65;
 
-    // 9. Destination stream carrying pristine DSP-boosted audio to the AI recorder
-    this.destinationNode = this.audioContext.createMediaStreamDestination();
-
     // Studio-grade vocal DSP chain:
-    // source -> highPass (85Hz) -> synthNotch (280Hz) -> midBoost (2.8kHz) -> deEsser (6.5kHz) -> highCut (14.5kHz) -> preAmp -> compressor (-20dB 3:1) -> analyser -> destination
+    // source -> highPass (85Hz) -> synthNotch (280Hz) -> midBoost (2.8kHz) -> deEsser (6.5kHz) -> highCut (14.5kHz) -> preAmp -> compressor (-20dB 3:1) -> analyser
     this.sourceNode
       .connect(this.highPassNode)
       .connect(this.synthNotchNode)
@@ -220,12 +224,45 @@ export class ChurchAudioEngine {
       .connect(this.compressorNode)
       .connect(this.analyserNode);
 
-    this.compressorNode.connect(this.destinationNode);
-
     this.isRunning = true;
     this.startMeterLoop();
-    this.startContinuousStreamRecorder();
-    this.startPcmWavChunker();
+    await this.startAudioCapturePipeline();
+  }
+
+  public getDspNodeSnapshot(): {
+    highPassHz: number;
+    synthNotchHz: number;
+    synthNotchGainDb: number;
+    vocalPresenceHz: number;
+    vocalPresenceGainDb: number;
+    deEsserHz: number;
+    deEsserGainDb: number;
+    highCutHz: number;
+    compressorThresholdDb: number;
+    compressorRatio: number;
+  } | null {
+    if (
+      !this.highPassNode ||
+      !this.synthNotchNode ||
+      !this.vocalPresenceNode ||
+      !this.deEsserNode ||
+      !this.highCutNode ||
+      !this.compressorNode
+    ) {
+      return null;
+    }
+    return {
+      highPassHz: this.highPassNode.frequency.value,
+      synthNotchHz: this.synthNotchNode.frequency.value,
+      synthNotchGainDb: this.synthNotchNode.gain.value,
+      vocalPresenceHz: this.vocalPresenceNode.frequency.value,
+      vocalPresenceGainDb: this.vocalPresenceNode.gain.value,
+      deEsserHz: this.deEsserNode.frequency.value,
+      deEsserGainDb: this.deEsserNode.gain.value,
+      highCutHz: this.highCutNode.frequency.value,
+      compressorThresholdDb: this.compressorNode.threshold.value,
+      compressorRatio: this.compressorNode.ratio.value,
+    };
   }
 
   public updateConfig(newConfig: Partial<AudioProcessingConfig>): void {
@@ -244,12 +281,10 @@ export class ChurchAudioEngine {
     }
 
     if (this.vocalPresenceNode && newConfig.synthPadFilterEnabled !== undefined) {
-      // Junie & Bard recommendation: gentle 2.8kHz presence boost (+2.5dB)
       this.vocalPresenceNode.gain.value = newConfig.synthPadFilterEnabled ? 2.5 : 0;
     }
 
     if (this.deEsserNode) {
-      // Junie recommendation: 5kHz–8kHz notch (-2.5dB at 6.5kHz)
       this.deEsserNode.frequency.value = 6500;
       this.deEsserNode.gain.value = -2.5;
     }
@@ -259,7 +294,6 @@ export class ChurchAudioEngine {
     }
 
     if (this.compressorNode && newConfig.dynamicCompressorEnabled !== undefined) {
-      // Junie & Bard recommendation: smooth -20dB 3:1 compression
       this.compressorNode.threshold.value = newConfig.dynamicCompressorEnabled ? -20 : -6;
       this.compressorNode.ratio.value = newConfig.dynamicCompressorEnabled ? 3 : 1.5;
     }
@@ -267,8 +301,8 @@ export class ChurchAudioEngine {
     if (this.isRunning && (prevBypass !== this.config.bypassOsProcessing || prevDevice !== this.config.selectedDeviceId)) {
       void this.restart();
     } else if (this.isRunning && prevChunkSec !== this.config.chunkDurationSec) {
-      this.pcmChunks = [];
-      this.pcmSampleCount = 0;
+      this.pcm16kChunks = [];
+      this.pcm16kSampleCount = 0;
     }
   }
 
@@ -279,12 +313,22 @@ export class ChurchAudioEngine {
 
   public stop(): void {
     this.isRunning = false;
-    this.pcmChunks = [];
-    this.pcmSampleCount = 0;
+    this.pcm16kChunks = [];
+    this.pcm16kSampleCount = 0;
 
     if (this.meterFrameId !== null) {
       window.cancelAnimationFrame(this.meterFrameId);
       this.meterFrameId = null;
+    }
+
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.onmessage = null;
+        this.workletNode.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.workletNode = null;
     }
 
     if (this.scriptProcessorNode) {
@@ -306,15 +350,6 @@ export class ChurchAudioEngine {
       this.silentGainNode = null;
     }
 
-    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
-      try {
-        this.continuousStreamingRecorder.stop();
-      } catch {
-        // Ignore
-      }
-    }
-    this.continuousStreamingRecorder = null;
-
     if (this.rawStream) {
       this.rawStream.getTracks().forEach((track) => track.stop());
       this.rawStream = null;
@@ -326,134 +361,99 @@ export class ChurchAudioEngine {
     }
   }
 
-  private getSupportedMimeType(): string {
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4',
-    ];
-    for (const mime of candidates) {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(mime)) {
-        return mime;
-      }
-    }
-    return '';
-  }
-
   public restartContinuousStreamRecorder(): void {
-    if (!this.isRunning || !this.destinationNode) return;
-    if (this.continuousStreamingRecorder && this.continuousStreamingRecorder.state !== 'inactive') {
-      try {
-        this.continuousStreamingRecorder.ondataavailable = null;
-        this.continuousStreamingRecorder.stop();
-      } catch {
-        // Ignore stop errors
-      }
-    }
-    this.continuousStreamingRecorder = null;
-    this.startContinuousStreamRecorder();
+    // No-op: raw linear16 PCM streaming requires no container header reset on reconnect
   }
 
-  private startContinuousStreamRecorder(): void {
-    if (!this.destinationNode || !this.isRunning || !this.onStreamingSlice) return;
-
-    const mimeType = this.getSupportedMimeType();
-    try {
-      // Dedicated continuous stream for live WebSocket: sends initial WebM header once, then 250ms audio slices
-      const streamRecorder = mimeType
-        ? new MediaRecorder(this.destinationNode.stream, { mimeType, audioBitsPerSecond: 64000 })
-        : new MediaRecorder(this.destinationNode.stream);
-
-      streamRecorder.ondataavailable = (ev) => {
-        if (!ev.data || ev.data.size === 0 || !this.isRunning) return;
-        this.onStreamingSlice?.(ev.data);
-      };
-
-      this.continuousStreamingRecorder = streamRecorder;
-      streamRecorder.start(250);
-    } catch (err) {
-      console.warn('[ChurchAudioEngine] Failed to start continuous streaming WebSocket recorder:', err);
-    }
-  }
-
-  private startPcmWavChunker(): void {
+  private async startAudioCapturePipeline(): Promise<void> {
     if (!this.audioContext || !this.compressorNode || !this.isRunning) return;
 
-    this.pcmChunks = [];
-    this.pcmSampleCount = 0;
-    const sampleRate = this.audioContext.sampleRate;
-    const targetDurationSec = this.config.chunkDurationSec || 3.5;
-    const targetSamples = Math.round(targetDurationSec * sampleRate);
+    this.pcm16kChunks = [];
+    this.pcm16kSampleCount = 0;
+    this.chunkStartTime = performance.now();
 
-    // Standard 4096-sample buffer size for glitch-free PCM capture directly from the DSP chain
-    this.scriptProcessorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
+    const inputSampleRate = this.audioContext.sampleRate;
     this.silentGainNode = this.audioContext.createGain();
     this.silentGainNode.gain.value = 0;
 
-    let chunkStartTime = performance.now();
+    // Prefer off-main-thread AudioWorkletNode for glitch-free mobile capture
+    if (
+      typeof AudioWorkletNode !== 'undefined' &&
+      this.audioContext.audioWorklet &&
+      typeof this.audioContext.audioWorklet.addModule === 'function'
+    ) {
+      try {
+        await this.audioContext.audioWorklet.addModule('/audio-capture-processor.js');
+        if (!this.isRunning || !this.audioContext || !this.compressorNode || !this.silentGainNode) {
+          return;
+        }
+        const worklet = new AudioWorkletNode(this.audioContext, 'sanctuary-pcm-processor');
+        worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
+          if (!this.isRunning || !ev.data) return;
+          this.handleRawPcmBlock(ev.data, inputSampleRate);
+        };
+        this.workletNode = worklet;
+        this.compressorNode.connect(worklet);
+        worklet.connect(this.silentGainNode);
+        this.silentGainNode.connect(this.audioContext.destination);
+        return;
+      } catch (err) {
+        console.warn('[ChurchAudioEngine] AudioWorklet unavailable, falling back to ScriptProcessor:', err);
+      }
+    }
 
+    // Fallback for environments without AudioWorklet support
+    if (!this.isRunning || !this.audioContext || !this.compressorNode || !this.silentGainNode) {
+      return;
+    }
+    this.scriptProcessorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
     this.scriptProcessorNode.onaudioprocess = (e) => {
       if (!this.isRunning) return;
       const inputData = e.inputBuffer.getChannelData(0);
-      const copy = new Float32Array(inputData);
-      this.pcmChunks.push(copy);
-      this.pcmSampleCount += copy.length;
-
-      if (this.pcmSampleCount >= targetSamples) {
-        const merged = new Float32Array(this.pcmSampleCount);
-        let offset = 0;
-        for (const piece of this.pcmChunks) {
-          merged.set(piece, offset);
-          offset += piece.length;
-        }
-
-        const duration = Math.round(performance.now() - chunkStartTime);
-        const wavBlob = this.encodeWav(merged, sampleRate);
-        this.pcmChunks = [];
-        this.pcmSampleCount = 0;
-        chunkStartTime = performance.now();
-
-        this.onAudioChunk(wavBlob, 'audio/wav', duration);
-      }
+      this.handleRawPcmBlock(new Float32Array(inputData), inputSampleRate);
     };
-
     this.compressorNode.connect(this.scriptProcessorNode);
     this.scriptProcessorNode.connect(this.silentGainNode);
     this.silentGainNode.connect(this.audioContext.destination);
   }
 
-  private encodeWav(samples: Float32Array, sampleRate: number): Blob {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buffer);
+  private handleRawPcmBlock(rawBlock: Float32Array, inputSampleRate: number): void {
+    // 1. Downsample hardware rate (e.g. 48kHz) -> 16kHz mono (cuts bandwidth ~3x)
+    const downsampled16k = downsampleTo16kHz(rawBlock, inputSampleRate, TARGET_SAMPLE_RATE);
+    if (downsampled16k.length === 0) return;
 
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // Linear PCM
-    view.setUint16(22, 1, true); // Mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true); // Byte rate (sampleRate * 1 ch * 2 bytes)
-    view.setUint16(32, 2, true); // Block align
-    view.setUint16(34, 16, true); // Bits per sample
-    writeString(36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-
-    let offset = 44;
-    for (let i = 0; i < samples.length; i++, offset += 2) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    // 2. Stream raw 16kHz 16-bit linear PCM directly to Deepgram Live WebSocket (zero MediaRecorder/WebM)
+    if (this.onStreamingSlice) {
+      const pcm16 = float32ToInt16Pcm(downsampled16k);
+      this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
     }
 
-    return new Blob([buffer], { type: 'audio/wav' });
+    // 3. Accumulate 16kHz samples for 3.5s REST watchdog WAV chunks
+    this.pcm16kChunks.push(downsampled16k);
+    this.pcm16kSampleCount += downsampled16k.length;
+
+    const targetDurationSec = this.config.chunkDurationSec || 3.5;
+    const targetSamples16k = Math.round(targetDurationSec * TARGET_SAMPLE_RATE);
+
+    if (this.pcm16kSampleCount >= targetSamples16k) {
+      const merged = new Float32Array(this.pcm16kSampleCount);
+      let offset = 0;
+      for (const piece of this.pcm16kChunks) {
+        merged.set(piece, offset);
+        offset += piece.length;
+      }
+
+      const duration = Math.round(performance.now() - this.chunkStartTime);
+      this.pcm16kChunks = [];
+      this.pcm16kSampleCount = 0;
+      this.chunkStartTime = performance.now();
+
+      // 4. Client-side VAD energy gate: skip uploading silent/empty chunks to save bandwidth & cost
+      if (hasSpeechActivity(merged)) {
+        const wavBlob = encodeWav16kHz(merged, TARGET_SAMPLE_RATE);
+        this.onAudioChunk(wavBlob, 'audio/wav', duration);
+      }
+    }
   }
 
   private startMeterLoop(): void {

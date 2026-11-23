@@ -1,5 +1,8 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import { getKeywordsForLanguage } from '../constants/theologyKeywords';
+import { sanitizeNova2Keywords } from '../utils/transcriptUtils';
+
+export type DeepgramConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'fallback';
 
 export interface DeepgramLiveSegment {
   speakerId: string;
@@ -16,6 +19,7 @@ export interface DeepgramLiveSegment {
 export type OnTranscriptCallback = (segment: DeepgramLiveSegment) => void;
 export type OnInterimCallback = (interimText: string) => void;
 export type OnErrorCallback = (err: string) => void;
+export type OnStatusChangeCallback = (status: DeepgramConnectionStatus) => void;
 
 export class DeepgramLiveWebSocket {
   private socket: WebSocket | null = null;
@@ -27,9 +31,11 @@ export class DeepgramLiveWebSocket {
   private onInterim?: OnInterimCallback;
   private onError: OnErrorCallback;
   private onReconnected?: () => void;
+  private onStatusChange?: OnStatusChangeCallback;
 
   // Utterance accumulation state to ensure word-for-word complete sentences
   private accumulatedWords: string[] = [];
+  private recentSourceSentences: string[] = [];
   private currentSpeakerNum = 0;
   private flushTimer: number | null = null;
   private keepAliveTimer: number | null = null;
@@ -47,7 +53,8 @@ export class DeepgramLiveWebSocket {
     onError: OnErrorCallback,
     onInterim?: OnInterimCallback,
     customChurchGlossary: string[] = [],
-    onReconnected?: () => void
+    onReconnected?: () => void,
+    onStatusChange?: OnStatusChangeCallback
   ) {
     this.apiKey = apiKey.trim();
     this.sourceLang = sourceLang;
@@ -57,9 +64,11 @@ export class DeepgramLiveWebSocket {
     this.onError = onError;
     this.onInterim = onInterim;
     this.onReconnected = onReconnected;
+    this.onStatusChange = onStatusChange;
   }
 
   public async connect(): Promise<void> {
+    this.onStatusChange?.('connecting');
     // 1. Fetch short-lived token via our serverless grant endpoint (uses process.env.DEEPGRAM_API_KEY)
     let accessToken = this.apiKey;
     let authProtocol = 'token';
@@ -74,62 +83,56 @@ export class DeepgramLiveWebSocket {
       });
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
-        if (tokenData?.key) {
+        if (tokenData?.access_token) {
+          accessToken = tokenData.access_token;
+          authProtocol = 'token';
+        } else if (tokenData?.key) {
           accessToken = tokenData.key;
           authProtocol = 'token';
-        } else if (tokenData?.access_token) {
-          accessToken = tokenData.access_token;
-          authProtocol = 'token'; // Deepgram browser WebSocket requires ['token', token]
         }
       }
     } catch {
-      // Fallback to direct key if token endpoint is unreachable
+      // Fallback to direct user-entered key if token endpoint is unreachable
     }
 
     if (!accessToken) {
-      throw new Error('No Deepgram API key or temporary token available');
+      this.onStatusChange?.('fallback');
+      throw new Error('No Deepgram temporary token available; using server-side REST fallback');
     }
 
     this.accessToken = accessToken;
 
     return new Promise((resolve, reject) => {
       try {
-        // Deepgram live WebSocket configuration
-        // When Auto-Detect is chosen:
-        // Nova-3 supports multi-language real-time speech recognition (language=multi).
-        // IMPORTANT: Nova-3 requires 'keyterm=WORD' without ':weight' suffixes!
-        // Nova-2 requires 'keywords=WORD:weight'.
-        // If a specific language is chosen (e.g. 'ko', 'en', 'es'), use nova-2 or nova-3 based on language support.
+        // Deepgram live WebSocket configuration using raw 16kHz mono linear16 PCM
+        // Eliminates WebM container/EBML header issues and guarantees instant reconnects
         const isAuto = !this.sourceLang || this.sourceLang === 'auto';
-        
+        const pcmParams = '&encoding=linear16&sample_rate=16000&channels=1';
+
         let wsUrl: string;
         const boostedWords = getKeywordsForLanguage(this.sourceLang, this.customChurchGlossary);
 
         if (isAuto) {
           // Nova-3 multi-language auto-detection
-          // Use keyterm parameter (Nova-3 does not accept keywords with intensity weights)
           const keytermParams = boostedWords
             .slice(0, 20)
             .map((w) => `&keyterm=${encodeURIComponent(w)}`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
         } else {
           // Specific language pinned (e.g. ko, en, es, pt, etc.)
-          // Nova-2 supports keywords with weight intensity (:2) across all languages
-          // Filter to single words without spaces to avoid Deepgram 400 Bad Request
-          const singleWords = boostedWords
-            .flatMap((w) => w.split(/\s+/))
-            .filter((w) => w.length > 1)
-            .slice(0, 25);
+          // Nova-2 requires single-word tokens without spaces for `keywords`
+          const singleWords = sanitizeNova2Keywords(boostedWords, 25);
           const keywordParams = singleWords
             .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
         }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);
 
         this.socket.onopen = () => {
+          this.onStatusChange?.('live');
           this.startKeepAlive();
           resolve();
         };
@@ -265,12 +268,19 @@ export class DeepgramLiveWebSocket {
     this.lastFlushedAt = now;
 
     try {
-      // Direct, word-for-word translation of the complete sentence
+      const contextStr = this.recentSourceSentences.slice(-2).join(' ').trim();
+      // Direct, word-for-word translation of the complete sentence with sermon context
       const { translatedText, detectedLang, provider } = await this.translateAndDetect(
         dedupedSentence,
         this.sourceLang !== 'auto' ? this.sourceLang : 'auto',
-        this.targetLang
+        this.targetLang,
+        contextStr
       );
+
+      this.recentSourceSentences.push(dedupedSentence);
+      if (this.recentSourceSentences.length > 3) {
+        this.recentSourceSentences = this.recentSourceSentences.slice(-2);
+      }
 
       const speakerId = `speaker_${speakerNum + 1}`;
       this.onSegment({
@@ -358,6 +368,7 @@ export class DeepgramLiveWebSocket {
   private attemptReconnect(): void {
     if (this.isReconnecting || !this.accessToken) return;
     this.isReconnecting = true;
+    this.onStatusChange?.('reconnecting');
     window.setTimeout(() => {
       if (!this.accessToken) {
         this.isReconnecting = false;
@@ -366,7 +377,6 @@ export class DeepgramLiveWebSocket {
       this.connect()
         .then(() => {
           this.isReconnecting = false;
-          // Notify audio engine to emit a fresh WebM container header for the new socket
           this.onReconnected?.();
         })
         .catch(() => {
@@ -381,7 +391,8 @@ export class DeepgramLiveWebSocket {
   private async translateAndDetect(
     text: string,
     sourceLang: string,
-    targetLang: string
+    targetLang: string,
+    context?: string
   ): Promise<{ translatedText: string; detectedLang: string; provider?: 'deepl' | 'gemini' | 'google-neural' }> {
     try {
       // 1. Try our own serverless proxy endpoint first to bypass browser CORS restrictions
@@ -392,6 +403,7 @@ export class DeepgramLiveWebSocket {
           text,
           sl: sourceLang,
           tl: targetLang,
+          ...(context ? { context } : {}),
         }),
       });
 

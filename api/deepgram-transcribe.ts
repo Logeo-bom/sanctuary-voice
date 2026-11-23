@@ -34,6 +34,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sourceLang = (req.headers['x-source-lang'] as string) || 'auto';
     const targetLang = (req.headers['x-target-lang'] as string) || 'en';
     const customGlossaryRaw = (req.headers['x-custom-glossary'] as string) || '';
+    const translationContextRaw = (req.headers['x-translation-context'] as string) || '';
+    let translationContext = '';
+    if (translationContextRaw) {
+      try {
+        translationContext = decodeURIComponent(translationContextRaw).trim().slice(0, 600);
+      } catch {}
+    }
     const contentType = req.headers['content-type'] || 'audio/webm';
 
     // Collect binary stream
@@ -158,6 +165,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           };
           if (src && src !== 'auto') {
             deeplPayload.source_lang = src.toUpperCase();
+          }
+          if (translationContext.length > 0) {
+            deeplPayload.context = translationContext;
           }
 
           const deeplRes = await fetch(deeplEndpoint, {

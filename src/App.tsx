@@ -42,7 +42,11 @@ import { ChurchAudioEngine } from './services/churchAudioEngine';
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
-import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
+import {
+  DeepgramLiveWebSocket,
+  type DeepgramConnectionStatus,
+} from './services/deepgramLiveWebSocket';
+import { evaluateDuplicateSegment } from './utils/transcriptUtils';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { OfflineEdgeTranslator } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
@@ -207,6 +211,8 @@ export function App() {
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
   });
   const [isOfflineEdgeActive, setIsOfflineEdgeActive] = useState<boolean>(false);
+  const [wsStatus, setWsStatus] = useState<DeepgramConnectionStatus>('connecting');
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const consecutiveFailuresRef = useRef<number>(0);
   const finishingQueueTimerRef = useRef<number | null>(null);
@@ -277,6 +283,51 @@ export function App() {
   useEffect(() => {
     isScriptureExpandedRef.current = isScriptureExpanded;
   }, [isScriptureExpanded]);
+
+  // Keep phone screen awake during live sermons so OS sleep does not suspend mic or WebSocket
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+    let cancelled = false;
+
+    const acquireWakeLock = async () => {
+      if (!isListening || cancelled) return;
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      } catch {
+        // Ignore if battery saver or browser policy declines wake lock
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        try {
+          await wakeLockRef.current.release();
+        } catch {
+          // Ignore
+        }
+        wakeLockRef.current = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && isListening) {
+        void acquireWakeLock();
+      }
+    };
+
+    if (isListening) {
+      void acquireWakeLock();
+      document.addEventListener('visibilitychange', handleVisibility);
+    } else {
+      void releaseWakeLock();
+    }
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
+      void releaseWakeLock();
+    };
+  }, [isListening]);
 
   useEffect(() => {
     activeScriptureRef.current = activeScripture;
@@ -741,22 +792,19 @@ export function App() {
       const prevSegments = segmentsRef.current;
       const lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
       if (lastSegment) {
-        const normIncoming = params.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
-        const normLast = lastSegment.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
-        const normTransIncoming = params.translatedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
-        const normTransLast = lastSegment.translatedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
-        const timeDiff = Date.now() - lastSegment.timestamp;
-
-        if (timeDiff < 3500) {
-          // Exact duplicate within 3.5 seconds
-          if (normIncoming === normLast || normTransIncoming === normTransLast) {
-            return;
-          }
-          // Incoming is a progressive expansion of the last short fragment (e.g. progressive STT sentence completion)
-          if (normIncoming.length > normLast.length && normIncoming.startsWith(normLast)) {
-            setSegments((prev) => [...prev.slice(0, -1), newSegment]);
-            return;
-          }
+        const decision = evaluateDuplicateSegment({
+          incomingOriginal: params.originalText,
+          incomingTranslated: params.translatedText,
+          lastOriginal: lastSegment.originalText,
+          lastTranslated: lastSegment.translatedText,
+          timeDiffMs: Date.now() - lastSegment.timestamp,
+        });
+        if (decision === 'skip') {
+          return;
+        }
+        if (decision === 'replace') {
+          setSegments((prev) => [...prev.slice(0, -1), newSegment]);
+          return;
         }
       }
 
@@ -812,6 +860,12 @@ export function App() {
         let deepgramError = '';
 
         try {
+          const recentOriginalContext = segmentsRef.current
+            .slice(-2)
+            .map((s) => s.originalText)
+            .join(' ')
+            .trim();
+
           const result = await transcribeAndTranslateWithDeepgram({
             audioBlob,
             mimeType,
@@ -819,6 +873,7 @@ export function App() {
             deepgramApiKey: currentDgKey || undefined,
             sourceLanguageCode: speaker1LangRef.current,
             customChurchGlossary: customChurchGlossaryRef.current,
+            recentContext: recentOriginalContext || undefined,
           });
 
           if (result.utterances && result.utterances.length > 0) {
@@ -1121,24 +1176,25 @@ export function App() {
               setLiveInterimText(interim);
             },
             customChurchGlossaryRef.current,
-            () => {
-              // Emit a fresh WebM container header whenever Deepgram WebSocket reconnects
-              audioEngineRef.current?.restartContinuousStreamRecorder();
+            undefined,
+            (status) => {
+              setWsStatus(status);
             }
           );
 
           await wsClient.connect();
           deepgramWsRef.current = wsClient;
         } catch (wsErr) {
-          console.warn('Deepgram WebSocket connection failed, falling back to REST chunking:', wsErr);
+          console.warn('Deepgram WebSocket unavailable, running server-side 16kHz WAV REST mode:', wsErr);
           deepgramWsRef.current = null;
+          setWsStatus('fallback');
         }
       }
 
       const engine = new ChurchAudioEngine(
         audioConfig,
         (blob, mime, dur) => {
-          // Unified watchdog chunk: automatically transcribes if WebSocket is quiet for >4.5s
+          // Unified watchdog chunk: automatically transcribes 16kHz WAV if WebSocket is quiet for >4.5s
           void handleAudioChunkReady(blob, mime, dur);
         },
         (snapshot) => setMeter(snapshot),
@@ -1148,10 +1204,10 @@ export function App() {
           deepgramWsRef.current?.close();
           deepgramWsRef.current = null;
         },
-        (sliceBlob) => {
-          // Instant 250ms streaming micro-slices for Deepgram Live WebSocket
+        (pcm16Buffer) => {
+          // Instant raw 16kHz linear16 PCM frames for Deepgram Live WebSocket
           if (deepgramWsRef.current && deepgramWsRef.current.isConnected()) {
-            deepgramWsRef.current.sendAudio(sliceBlob);
+            deepgramWsRef.current.sendAudio(pcm16Buffer);
           }
         }
       );
@@ -2146,19 +2202,38 @@ export function App() {
             </div>
           )}
 
-          {/* Real-time Diagnostics Badge when listening */}
+          {/* Real-time Connection & Speech Status Pill when listening */}
           {isListening && (
-            <div className="px-2.5 py-1 bg-slate-900/90 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <span className={`w-2 h-2 rounded-full ${isOfflineEdgeActive ? 'bg-amber-400 animate-pulse' : meter.isVoiceDetected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+            <div className="px-2.5 py-1.5 bg-slate-900/90 border border-slate-800 rounded-lg flex items-center justify-between text-[10px] text-slate-300">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isOfflineEdgeActive || wsStatus === 'reconnecting'
+                      ? 'bg-amber-400 animate-pulse'
+                      : meter.isVoiceDetected
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-sky-400 animate-pulse'
+                  }`}
+                />
                 {isOfflineEdgeActive
-                  ? 'Offline Sanctuary Mode Active'
-                  : meter.isVoiceDetected
-                    ? 'Voice Detected'
-                    : 'Listening for Voice...'} {!isOfflineEdgeActive && `(${meter.rmsDb} dB)`}
+                  ? 'Offline Sanctuary Mode'
+                  : wsStatus === 'reconnecting'
+                    ? 'Reconnecting...'
+                    : meter.isVoiceDetected
+                      ? 'Live Stream — Voice Active'
+                      : 'Listening — waiting for speech...'}
+                {!isOfflineEdgeActive && (
+                  <span className="text-slate-500 font-normal">({meter.rmsDb} dB)</span>
+                )}
               </span>
-              <span>
-                Engine: {isOfflineEdgeActive ? 'On-Device NPU/Edge' : deepgramWsRef.current ? 'Live WebSocket + DeepL' : 'Direct REST'}
+              <span className="text-slate-400">
+                {isOfflineEdgeActive
+                  ? 'On-Device Edge'
+                  : wsStatus === 'live'
+                    ? '16kHz PCM Live + DeepL'
+                    : wsStatus === 'reconnecting'
+                      ? 'Reconnecting WS'
+                      : '16kHz WAV Watchdog'}
               </span>
             </div>
           )}

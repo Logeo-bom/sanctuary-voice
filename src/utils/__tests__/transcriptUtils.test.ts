@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluateDuplicateSegment,
+  isLikelyTtsEcho,
   sanitizeNova2Keywords,
   selectDeepgramModel,
 } from '../transcriptUtils';
@@ -65,5 +66,24 @@ describe('transcriptUtils', () => {
       timeDiffMs: 900,
     });
     expect(decision).toBe('replace');
+  });
+
+  it('detects recursive TTS acoustic feedback loops and speaker self-echoes', () => {
+    expect(
+      isLikelyTtsEcho('Table said said that that\'s that\'s said that that no longer sue.', [])
+    ).toBe(true);
+    expect(
+      isLikelyTtsEcho('Longer sued me. Me sued. Sued. Me sued.', [])
+    ).toBe(true);
+    expect(
+      isLikelyTtsEcho('There are a few tables that no longer suit me', [
+        'There are a few tables that no longer suit me.',
+      ])
+    ).toBe(true);
+    expect(
+      isLikelyTtsEcho('A Bíblia nos ensina que nós somos libertos pela palavra.', [
+        'There are a few tables that no longer suit me.',
+      ])
+    ).toBe(false);
   });
 });

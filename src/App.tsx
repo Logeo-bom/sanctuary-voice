@@ -46,7 +46,7 @@ import {
   DeepgramLiveWebSocket,
   type DeepgramConnectionStatus,
 } from './services/deepgramLiveWebSocket';
-import { evaluateDuplicateSegment } from './utils/transcriptUtils';
+import { evaluateDuplicateSegment, isLikelyTtsEcho } from './utils/transcriptUtils';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { OfflineEdgeTranslator } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
@@ -216,6 +216,8 @@ export function App() {
 
   const consecutiveFailuresRef = useRef<number>(0);
   const finishingQueueTimerRef = useRef<number | null>(null);
+  const listeningSessionIdRef = useRef<number>(0);
+  const recentSpokenRef = useRef<Array<{ text: string; at: number }>>([]);
 
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
@@ -788,6 +790,23 @@ export function App() {
         latencyMs: params.latencyMs,
       };
 
+      // Drop any late callbacks if user already tapped Stop
+      if (!isListeningRef.current) {
+        return;
+      }
+
+      // Acoustic feedback loop guard: ignore transcripts that echo the app's own recent TTS speaker output
+      const nowMs = Date.now();
+      recentSpokenRef.current = recentSpokenRef.current.filter((item) => nowMs - item.at < 7000);
+      if (
+        isLikelyTtsEcho(
+          params.originalText,
+          recentSpokenRef.current.map((item) => item.text)
+        )
+      ) {
+        return;
+      }
+
       // Global duplicate and overlap guard: prevent adding consecutive identical or repeating segments
       const prevSegments = segmentsRef.current;
       const lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
@@ -828,6 +847,10 @@ export function App() {
       const shouldSpeakInEarphones = !isMutedByLock && speechEngineRef.current;
 
       if (shouldSpeakInEarphones && speechEngineRef.current) {
+        recentSpokenRef.current.push({ text: params.translatedText, at: Date.now() });
+        if (recentSpokenRef.current.length > 6) {
+          recentSpokenRef.current = recentSpokenRef.current.slice(-6);
+        }
         speechEngineRef.current.speakTranslation(
           params.translatedText,
           targetLangRef.current,
@@ -841,9 +864,14 @@ export function App() {
 
   const handleAudioChunkReady = useCallback(
     async (audioBlob: Blob, mimeType: string, durationMs: number) => {
+      const sessionId = listeningSessionIdRef.current;
       const activeProvider = aiProviderRef.current;
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;
+
+      if (!isListeningRef.current) {
+        return;
+      }
 
       // Redundancy watchdog: If live WebSocket is actively producing translations within last 4.5 seconds,
       // skip REST chunk to avoid double-translation
@@ -875,6 +903,11 @@ export function App() {
             customChurchGlossary: customChurchGlossaryRef.current,
             recentContext: recentOriginalContext || undefined,
           });
+
+          if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) {
+            setIsProcessingChunk(false);
+            return;
+          }
 
           if (result.utterances && result.utterances.length > 0) {
             setWallet((prev) => {
@@ -1093,6 +1126,11 @@ export function App() {
 
   const toggleLiveMicrophone = async () => {
     if (isListening) {
+      // Immediately invalidate any in-flight REST requests so nothing fires after Stop
+      listeningSessionIdRef.current += 1;
+      isListeningRef.current = false;
+      recentSpokenRef.current = [];
+
       // Signal user that any final audio chunk in flight is finishing cleanly
       setIsFinishingQueue(true);
       if (finishingQueueTimerRef.current !== null) {
@@ -1100,7 +1138,7 @@ export function App() {
       }
       finishingQueueTimerRef.current = window.setTimeout(() => {
         setIsFinishingQueue(false);
-      }, 3500);
+      }, 1500);
 
       audioEngineRef.current?.stop();
       audioEngineRef.current = null;
@@ -1116,6 +1154,10 @@ export function App() {
       setIsOfflineEdgeActive(false);
       return;
     }
+
+    listeningSessionIdRef.current += 1;
+    isListeningRef.current = true;
+    recentSpokenRef.current = [];
 
     try {
       setErrorNotice(null);

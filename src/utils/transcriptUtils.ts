@@ -91,3 +91,56 @@ export function evaluateDuplicateSegment(params: {
 
   return 'append';
 }
+
+/**
+ * Detects whether an incoming transcript is an acoustic feedback echo of the app's own
+ * recent TTS speaker playback or a recursive stutter loop (e.g. "me sued. sued. me sued.").
+ */
+export function isLikelyTtsEcho(incomingText: string, recentSpokenTexts: string[]): boolean {
+  const words = (incomingText || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u00c0-\u024f\u3130-\u318f\uac00-\ud7af\s]/gi, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2);
+
+  if (words.length === 0) return false;
+
+  // 1. Recursive acoustic echo stutter detection (e.g. "said said that that's that's", "sued me me sued sued")
+  if (words.length >= 5) {
+    const uniqueWords = new Set(words);
+    let consecutiveRepeats = 0;
+    for (let i = 1; i < words.length; i++) {
+      if (words[i] === words[i - 1]) consecutiveRepeats++;
+    }
+    if (uniqueWords.size / words.length <= 0.52 || consecutiveRepeats >= 2) {
+      return true;
+    }
+  }
+
+  // 2. Direct overlap with text the app's own TTS spoke aloud in the last few seconds
+  if (recentSpokenTexts && recentSpokenTexts.length > 0) {
+    const spokenWordSet = new Set(
+      recentSpokenTexts
+        .join(' ')
+        .toLowerCase()
+        .replace(/[^a-z0-9\u00c0-\u024f\u3130-\u318f\uac00-\ud7af\s]/gi, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 3)
+    );
+
+    if (spokenWordSet.size > 0) {
+      const meaningfulIncoming = words.filter((w) => w.length >= 3);
+      if (meaningfulIncoming.length >= 2) {
+        let overlapCount = 0;
+        for (const w of meaningfulIncoming) {
+          if (spokenWordSet.has(w)) overlapCount++;
+        }
+        if (overlapCount / meaningfulIncoming.length >= 0.6) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}

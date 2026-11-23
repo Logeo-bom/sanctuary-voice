@@ -136,8 +136,10 @@ export class ChurchAudioEngine {
       // Crucial for Android Church Back-Row Capture:
       // Disabling OS noiseSuppression & autoGainControl stops Android from treating
       // distant PA loudspeakers or reverberant sanctuary speech as "background noise".
+      // Keep hardware echoCancellation=true so the phone's own TTS speaker output
+      // never feeds back into the microphone in an infinite loop when earphones aren't plugged in.
       const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: !this.config.bypassOsProcessing,
+        echoCancellation: true,
         noiseSuppression: !this.config.bypassOsProcessing,
         autoGainControl: !this.config.bypassOsProcessing,
         channelCount: 1,

@@ -1,6 +1,6 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import { getKeywordsForLanguage } from '../constants/theologyKeywords';
-import { sanitizeNova2Keywords } from '../utils/transcriptUtils';
+import { sanitizeNova2Keywords, selectDeepgramModel } from '../utils/transcriptUtils';
 
 export type DeepgramConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'fallback';
 
@@ -120,13 +120,21 @@ export class DeepgramLiveWebSocket {
             .join('');
           wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
         } else {
-          // Specific language pinned (e.g. ko, en, es, pt, etc.)
-          // Nova-2 requires single-word tokens without spaces for `keywords`
-          const singleWords = sanitizeNova2Keywords(boostedWords, 25);
-          const keywordParams = singleWords
-            .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
-            .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
+          // Use Nova-3 for supported languages (pt, es, en, fr, de, etc.) and Nova-2 for others (ko, no, tl)
+          const modelName = selectDeepgramModel(this.sourceLang);
+          if (modelName === 'nova-3') {
+            const keytermParams = boostedWords
+              .slice(0, 20)
+              .map((w) => `&keyterm=${encodeURIComponent(w)}`)
+              .join('');
+            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
+          } else {
+            const singleWords = sanitizeNova2Keywords(boostedWords, 25);
+            const keywordParams = singleWords
+              .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
+              .join('');
+            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
+          }
         }
 
         this.socket = new WebSocket(wsUrl, [authProtocol, accessToken]);

@@ -137,7 +137,7 @@ export function App() {
     synthPadFilterEnabled: true,
     dynamicCompressorEnabled: true,
     highPassHz: 85,
-    chunkDurationSec: 4,
+    chunkDurationSec: 4.5,
     silenceGateDb: -48,
     selectedDeviceId: 'default',
     neuralVoiceIsolationEnabled: true,

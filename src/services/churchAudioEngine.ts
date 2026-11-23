@@ -428,12 +428,14 @@ export class ChurchAudioEngine {
       this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
     }
 
-    // 3. Accumulate 16kHz samples for 3.5s REST watchdog WAV chunks
+    // 3. Accumulate 16kHz samples for REST watchdog WAV chunks with 0.5s tail overlap
+    // Overlap ensures words spoken across chunk boundaries are never sliced in half
     this.pcm16kChunks.push(downsampled16k);
     this.pcm16kSampleCount += downsampled16k.length;
 
-    const targetDurationSec = this.config.chunkDurationSec || 3.5;
+    const targetDurationSec = this.config.chunkDurationSec || 4.5;
     const targetSamples16k = Math.round(targetDurationSec * TARGET_SAMPLE_RATE);
+    const overlapSamples16k = Math.round(0.5 * TARGET_SAMPLE_RATE); // 8,000 samples (0.5s)
 
     if (this.pcm16kSampleCount >= targetSamples16k) {
       const merged = new Float32Array(this.pcm16kSampleCount);
@@ -444,8 +446,12 @@ export class ChurchAudioEngine {
       }
 
       const duration = Math.round(performance.now() - this.chunkStartTime);
-      this.pcm16kChunks = [];
-      this.pcm16kSampleCount = 0;
+
+      // Retain final 0.5s as overlap prefix for the next chunk
+      const tailStart = Math.max(0, merged.length - overlapSamples16k);
+      const overlapTail = merged.slice(tailStart);
+      this.pcm16kChunks = overlapTail.length > 0 ? [overlapTail] : [];
+      this.pcm16kSampleCount = overlapTail.length;
       this.chunkStartTime = performance.now();
 
       // 4. Client-side VAD energy gate: skip uploading silent/empty chunks to save bandwidth & cost

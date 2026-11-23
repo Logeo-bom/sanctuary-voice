@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateDuplicateSegment, sanitizeNova2Keywords } from '../transcriptUtils';
+import {
+  evaluateDuplicateSegment,
+  sanitizeNova2Keywords,
+  selectDeepgramModel,
+} from '../transcriptUtils';
 
 describe('transcriptUtils', () => {
+  it('selects nova-3 for Portuguese, English, Spanish, and Auto-Detect, and nova-2 for Korean/Norwegian', () => {
+    expect(selectDeepgramModel('auto')).toBe('nova-3');
+    expect(selectDeepgramModel('pt')).toBe('nova-3');
+    expect(selectDeepgramModel('pt-BR')).toBe('nova-3');
+    expect(selectDeepgramModel('en')).toBe('nova-3');
+    expect(selectDeepgramModel('es')).toBe('nova-3');
+    expect(selectDeepgramModel('ko')).toBe('nova-2');
+    expect(selectDeepgramModel('no')).toBe('nova-2');
+  });
+
   it('splits multi-word theological phrases into single Nova-2 tokens without spaces', () => {
     const sanitized = sanitizeNova2Keywords([
       'Espírito Santo',

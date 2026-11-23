@@ -1,4 +1,30 @@
 /**
+ * Languages natively supported by Deepgram Nova-3 (superior accuracy in reverberant rooms
+ * and background worship music compared to Nova-2).
+ */
+export const NOVA3_SUPPORTED_LANGS = new Set([
+  'auto',
+  'en',
+  'es',
+  'pt',
+  'fr',
+  'de',
+  'hi',
+  'it',
+  'ja',
+  'nl',
+  'ru',
+]);
+
+/**
+ * Selects the optimal Deepgram acoustic model for the requested source language.
+ */
+export function selectDeepgramModel(sourceLang: string): 'nova-3' | 'nova-2' {
+  const baseCode = (sourceLang || 'auto').toLowerCase().trim().split('-')[0];
+  return NOVA3_SUPPORTED_LANGS.has(baseCode) ? 'nova-3' : 'nova-2';
+}
+
+/**
  * Sanitizes theological glossary / keyword phrases into single-word tokens
  * required by Deepgram Nova-2's `keywords` query parameter (spaces trigger HTTP 400).
  */

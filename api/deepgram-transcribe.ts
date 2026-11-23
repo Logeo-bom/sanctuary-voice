@@ -59,8 +59,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ? `&language=${encodeURIComponent(sourceLang)}`
         : '&detect_language=true';
 
-    // Model selection: nova-2 for single pinned language, nova-3 for multilingual auto-detection
-    const modelName = sourceLang === 'auto' ? 'nova-3' : 'nova-2';
+    // Use Nova-3 for auto-detect and all Nova-3 supported languages (superior accuracy in reverberant church rooms)
+    const nova3Langs = new Set(['auto', 'en', 'es', 'pt', 'fr', 'de', 'hi', 'it', 'ja', 'nl', 'ru']);
+    const baseSourceCode = (sourceLang || 'auto').toLowerCase().trim().split('-')[0];
+    const modelName = nova3Langs.has(baseSourceCode) ? 'nova-3' : 'nova-2';
     const autoLangParam = sourceLang === 'auto' ? '&language=multi' : langQuery;
 
     // Parse custom church keyterms if passed

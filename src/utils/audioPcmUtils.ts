@@ -93,6 +93,40 @@ export function hasSpeechActivity(
 }
 
 /**
+ * Scans audio after `minSamples` for a natural speech pause (RMS below `threshold`)
+ * and returns its centre sample index, or `maxSamples` if no pause occurs before the cap.
+ */
+export function findSilenceCutIndex(
+  samples: Float32Array,
+  minSamples: number,
+  maxSamples: number,
+  windowSamples = 4800,
+  threshold = 0.004
+): number | null {
+  if (minSamples <= 0 || samples.length < minSamples) {
+    return null;
+  }
+
+  for (let start = minSamples; start < samples.length; start += windowSamples) {
+    const end = Math.min(start + windowSamples, samples.length);
+    let sum = 0;
+    for (let i = start; i < end; i++) {
+      sum += samples[i] * samples[i];
+    }
+    const rms = Math.sqrt(sum / (end - start));
+    if (rms < threshold) {
+      return Math.floor((start + end) / 2);
+    }
+  }
+
+  if (samples.length >= maxSamples) {
+    return maxSamples;
+  }
+
+  return null;
+}
+
+/**
  * Encodes mono Float32 PCM samples into a standard 44-byte RIFF/WAVE 16-bit PCM ArrayBuffer.
  */
 export function encodeWavBuffer(

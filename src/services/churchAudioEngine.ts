@@ -3,6 +3,7 @@ import {
   TARGET_SAMPLE_RATE,
   downsampleTo16kHz,
   encodeWav16kHz,
+  findSilenceCutIndex,
   float32ToInt16Pcm,
   hasSpeechActivity,
 } from '../utils/audioPcmUtils';
@@ -30,7 +31,6 @@ export class ChurchAudioEngine {
   private silentGainNode: GainNode | null = null;
   private pcm16kChunks: Float32Array[] = [];
   private pcm16kSampleCount = 0;
-  private chunkStartTime = 0;
   private meterFrameId: number | null = null;
   private isRunning = false;
   private config: AudioProcessingConfig;
@@ -372,7 +372,6 @@ export class ChurchAudioEngine {
 
     this.pcm16kChunks = [];
     this.pcm16kSampleCount = 0;
-    this.chunkStartTime = performance.now();
 
     const inputSampleRate = this.audioContext.sampleRate;
     this.silentGainNode = this.audioContext.createGain();
@@ -430,16 +429,14 @@ export class ChurchAudioEngine {
       this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
     }
 
-    // 3. Accumulate 16kHz samples for REST watchdog WAV chunks with 0.5s tail overlap
-    // Overlap ensures words spoken across chunk boundaries are never sliced in half
+    // 3. Accumulate 16kHz samples and cut at natural speech pauses (2.5s min, 8s max, zero overlap)
     this.pcm16kChunks.push(downsampled16k);
     this.pcm16kSampleCount += downsampled16k.length;
 
-    const targetDurationSec = this.config.chunkDurationSec || 4.5;
-    const targetSamples16k = Math.round(targetDurationSec * TARGET_SAMPLE_RATE);
-    const overlapSamples16k = Math.round(0.5 * TARGET_SAMPLE_RATE); // 8,000 samples (0.5s)
+    const minSamples = Math.round(2.5 * TARGET_SAMPLE_RATE);
+    const maxSamples = Math.round(8 * TARGET_SAMPLE_RATE);
 
-    if (this.pcm16kSampleCount >= targetSamples16k) {
+    if (this.pcm16kSampleCount >= minSamples) {
       const merged = new Float32Array(this.pcm16kSampleCount);
       let offset = 0;
       for (const piece of this.pcm16kChunks) {
@@ -447,19 +444,22 @@ export class ChurchAudioEngine {
         offset += piece.length;
       }
 
-      const duration = Math.round(performance.now() - this.chunkStartTime);
+      const cut = findSilenceCutIndex(merged, minSamples, maxSamples);
+      if (cut !== null) {
+        const emitPart = merged.subarray(0, cut);
+        const remainder = merged.slice(cut);
+        this.pcm16kChunks = remainder.length ? [remainder] : [];
+        this.pcm16kSampleCount = remainder.length;
 
-      // Retain final 0.5s as overlap prefix for the next chunk
-      const tailStart = Math.max(0, merged.length - overlapSamples16k);
-      const overlapTail = merged.slice(tailStart);
-      this.pcm16kChunks = overlapTail.length > 0 ? [overlapTail] : [];
-      this.pcm16kSampleCount = overlapTail.length;
-      this.chunkStartTime = performance.now();
-
-      // 4. Client-side VAD energy gate: skip uploading silent/empty chunks to save bandwidth & cost
-      if (hasSpeechActivity(merged)) {
-        const wavBlob = encodeWav16kHz(merged, TARGET_SAMPLE_RATE);
-        this.onAudioChunk(wavBlob, 'audio/wav', duration);
+        // 4. Client-side VAD energy gate: skip uploading silent/empty chunks to save bandwidth & cost
+        if (hasSpeechActivity(emitPart)) {
+          const duration = Math.round(emitPart.length / 16);
+          const wavBlob = encodeWav16kHz(emitPart, TARGET_SAMPLE_RATE);
+          this.onAudioChunk(wavBlob, 'audio/wav', duration);
+        }
+      } else {
+        this.pcm16kChunks = [merged];
+        this.pcm16kSampleCount = merged.length;
       }
     }
   }

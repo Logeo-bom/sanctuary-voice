@@ -79,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } catch {}
     }
 
-    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=${modelName}&diarize=true&punctuate=true&smart_format=true${autoLangParam}${extraParams}`;
+    const deepgramUrl = `https://api.deepgram.com/v1/listen?model=${modelName}&diarize=false&punctuate=true&smart_format=true${autoLangParam}${extraParams}`;
 
     const dgResponse = await fetch(deepgramUrl, {
       method: 'POST',

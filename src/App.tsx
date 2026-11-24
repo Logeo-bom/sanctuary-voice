@@ -218,6 +218,8 @@ export function App() {
   const finishingQueueTimerRef = useRef<number | null>(null);
   const listeningSessionIdRef = useRef<number>(0);
   const recentSpokenRef = useRef<Array<{ text: string; at: number }>>([]);
+  const restQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const restPendingRef = useRef<number>(0);
 
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
@@ -862,14 +864,13 @@ export function App() {
     []
   );
 
-  const handleAudioChunkReady = useCallback(
-    async (audioBlob: Blob, mimeType: string, durationMs: number) => {
-      const sessionId = listeningSessionIdRef.current;
+  const processAudioChunk = useCallback(
+    async (audioBlob: Blob, mimeType: string, durationMs: number, sessionId: number) => {
       const activeProvider = aiProviderRef.current;
       const currentDgKey = deepgramKeyRef.current;
       const currentGeminiKey = apiKeyRef.current;
 
-      if (!isListeningRef.current) {
+      if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) {
         return;
       }
 
@@ -1124,12 +1125,34 @@ export function App() {
     [upsertSpeakerAndAppendSegment]
   );
 
+  const handleAudioChunkReady = useCallback(
+    (audioBlob: Blob, mimeType: string, durationMs: number) => {
+      if (!isListeningRef.current) {
+        return;
+      }
+      const sessionId = listeningSessionIdRef.current;
+      if (restPendingRef.current >= 3) {
+        return;
+      }
+      restPendingRef.current += 1;
+      restQueueRef.current = restQueueRef.current
+        .then(() => processAudioChunk(audioBlob, mimeType, durationMs, sessionId))
+        .catch(() => {})
+        .finally(() => {
+          restPendingRef.current = Math.max(0, restPendingRef.current - 1);
+        });
+    },
+    [processAudioChunk]
+  );
+
   const toggleLiveMicrophone = async () => {
     if (isListening) {
       // Immediately invalidate any in-flight REST requests so nothing fires after Stop
       listeningSessionIdRef.current += 1;
       isListeningRef.current = false;
       recentSpokenRef.current = [];
+      restQueueRef.current = Promise.resolve();
+      restPendingRef.current = 0;
 
       // Signal user that any final audio chunk in flight is finishing cleanly
       setIsFinishingQueue(true);

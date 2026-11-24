@@ -4,6 +4,7 @@ import {
   calculateRms,
   downsampleTo16kHz,
   encodeWavBuffer,
+  findSilenceCutIndex,
   float32ToInt16Pcm,
   hasSpeechActivity,
 } from '../audioPcmUtils';
@@ -74,5 +75,43 @@ describe('audioPcmUtils', () => {
       mostlyQuiet[i] = Math.sin(i * 0.2) * 0.08;
     }
     expect(hasSpeechActivity(mostlyQuiet)).toBe(true);
+  });
+
+  it('findSilenceCutIndex cuts at a pause after minSamples', () => {
+    const minSamples = 2.5 * 16000;
+    const maxSamples = 8 * 16000;
+    const total = Math.round(4.5 * 16000);
+    const buf = new Float32Array(total);
+    for (let i = 0; i < 3 * 16000; i++) {
+      buf[i] = Math.sin(i * 0.1) * 0.1;
+    }
+    // 3s..3.5s remains zeros (pause), 3.5s..4.5s speech
+    for (let i = Math.round(3.5 * 16000); i < total; i++) {
+      buf[i] = Math.sin(i * 0.1) * 0.1;
+    }
+    const cut = findSilenceCutIndex(buf, minSamples, maxSamples);
+    expect(cut).not.toBeNull();
+    expect(cut!).toBeGreaterThanOrEqual(3 * 16000);
+    expect(cut!).toBeLessThanOrEqual(Math.round(3.5 * 16000));
+  });
+
+  it('findSilenceCutIndex waits (returns null) when speech is continuous below maxSamples', () => {
+    const minSamples = 2.5 * 16000;
+    const maxSamples = 8 * 16000;
+    const buf = new Float32Array(4 * 16000);
+    for (let i = 0; i < buf.length; i++) {
+      buf[i] = Math.sin(i * 0.1) * 0.1;
+    }
+    expect(findSilenceCutIndex(buf, minSamples, maxSamples)).toBeNull();
+  });
+
+  it('findSilenceCutIndex forces cut at maxSamples when speech exceeds cap with no pause', () => {
+    const minSamples = 2.5 * 16000;
+    const maxSamples = 8 * 16000;
+    const buf = new Float32Array(Math.round(8.2 * 16000));
+    for (let i = 0; i < buf.length; i++) {
+      buf[i] = Math.sin(i * 0.1) * 0.1;
+    }
+    expect(findSilenceCutIndex(buf, minSamples, maxSamples)).toBe(maxSamples);
   });
 });

@@ -76,6 +76,12 @@ describe('transcriptUtils', () => {
       isLikelyTtsEcho('Longer sued me. Me sued. Sued. Me sued.', [])
     ).toBe(true);
     expect(
+      isLikelyTtsEcho('O que que que', [])
+    ).toBe(true);
+    expect(
+      isLikelyTtsEcho('The code code for', [])
+    ).toBe(true);
+    expect(
       isLikelyTtsEcho('There are a few tables that no longer suit me', [
         'There are a few tables that no longer suit me.',
       ])

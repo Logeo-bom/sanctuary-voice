@@ -250,9 +250,21 @@ export class DeepgramLiveWebSocket {
       const cleanLast = this.lastFlushedText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
       const cleanCurrent = fullOriginalSentence.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
 
-      // Clean duplicate check: ignore if exact identical sentence was already flushed within 6 seconds
-      if (cleanCurrent && cleanCurrent === cleanLast && now - this.lastFlushedAt < 6000) {
+      // Clean duplicate check: ignore if exact identical sentence was already flushed within 10 seconds
+      if (cleanCurrent && cleanCurrent === cleanLast && now - this.lastFlushedAt < 10000) {
         return;
+      }
+
+      // Check for partial loop stutters (e.g. "o que que que", "o código o" vs "o código código é")
+      const currentWordsList = cleanCurrent.split(/\s+/).filter(Boolean);
+      const lastWordsList = cleanLast.split(/\s+/).filter(Boolean);
+      if (currentWordsList.length <= 4 && lastWordsList.length <= 4) {
+        const setA = new Set(currentWordsList);
+        const setB = new Set(lastWordsList);
+        const overlap = [...setA].filter((w) => setB.has(w));
+        if (overlap.length >= Math.min(setA.size, setB.size) && now - this.lastFlushedAt < 10000) {
+          return;
+        }
       }
 
       // Strip overlapping prefix if start of current sentence repeats the tail of previous sentence

@@ -85,6 +85,19 @@ export function evaluateDuplicateSegment(params: {
     return 'skip';
   }
 
+  // Detect loop stutters like "O que que que" or "O código o" vs "O código código é"
+  // If either text is a partial repetition or share >= 85% of words within this time window
+  const inWords = normIncoming.split(/\s+/).filter(Boolean);
+  const lastWords = normLast.split(/\s+/).filter(Boolean);
+  if (inWords.length <= 4 && lastWords.length <= 4 && inWords.length > 0 && lastWords.length > 0) {
+    const setA = new Set(inWords);
+    const setB = new Set(lastWords);
+    const intersect = [...setA].filter((w) => setB.has(w));
+    if (intersect.length >= Math.min(setA.size, setB.size)) {
+      return 'skip';
+    }
+  }
+
   if (normLast && normIncoming.length > normLast.length && normIncoming.startsWith(normLast)) {
     return 'replace';
   }
@@ -94,7 +107,7 @@ export function evaluateDuplicateSegment(params: {
 
 /**
  * Detects whether an incoming transcript is an acoustic feedback echo of the app's own
- * recent TTS speaker playback or a recursive stutter loop (e.g. "me sued. sued. me sued.").
+ * recent TTS speaker playback or a recursive stutter loop (e.g. "O que que que", "The code code for").
  */
 export function isLikelyTtsEcho(incomingText: string, recentSpokenTexts: string[]): boolean {
   const words = (incomingText || '')
@@ -105,14 +118,15 @@ export function isLikelyTtsEcho(incomingText: string, recentSpokenTexts: string[
 
   if (words.length === 0) return false;
 
-  // 1. Recursive acoustic echo stutter detection (e.g. "said said that that's that's", "sued me me sued sued")
-  if (words.length >= 5) {
+  // 1. Recursive acoustic echo stutter detection (e.g. "que que que", "code code", "said said that that's that's")
+  if (words.length >= 3) {
     const uniqueWords = new Set(words);
     let consecutiveRepeats = 0;
     for (let i = 1; i < words.length; i++) {
       if (words[i] === words[i - 1]) consecutiveRepeats++;
     }
-    if (uniqueWords.size / words.length <= 0.52 || consecutiveRepeats >= 2) {
+    // High repetition density: 3 words with only 1-2 unique, or consecutive identical tokens ("que que que", "code code")
+    if (uniqueWords.size / words.length <= 0.6 || consecutiveRepeats >= 1) {
       return true;
     }
   }

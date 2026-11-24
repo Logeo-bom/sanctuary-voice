@@ -85,7 +85,7 @@ export class DeepgramLiveWebSocket {
         const tokenData = await tokenRes.json();
         if (tokenData?.access_token) {
           accessToken = tokenData.access_token;
-          authProtocol = 'token';
+          authProtocol = 'Bearer';
         } else if (tokenData?.key) {
           accessToken = tokenData.key;
           authProtocol = 'token';

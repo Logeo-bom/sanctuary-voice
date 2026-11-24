@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   evaluateDuplicateSegment,
   isLikelyTtsEcho,
+  isLowConfidenceSegment,
+  isNearDuplicateFragment,
   sanitizeNova2Keywords,
   selectDeepgramModel,
 } from '../transcriptUtils';
@@ -90,6 +92,31 @@ describe('transcriptUtils', () => {
       isLikelyTtsEcho('A Bíblia nos ensina que nós somos libertos pela palavra.', [
         'There are a few tables that no longer suit me.',
       ])
+    ).toBe(false);
+  });
+
+  it('gates segments whose average Deepgram confidence is below the minimum threshold', () => {
+    expect(isLowConfidenceSegment(0.2)).toBe(true);
+    expect(isLowConfidenceSegment(0.34)).toBe(true);
+    expect(isLowConfidenceSegment(0.35)).toBe(false);
+    expect(isLowConfidenceSegment(0.9)).toBe(false);
+  });
+
+  it('treats a missing confidence score as confident (no evidence to gate on)', () => {
+    expect(isLowConfidenceSegment(undefined)).toBe(false);
+  });
+
+  it('detects near-duplicate fragments that mostly overlap the previous segment', () => {
+    expect(isNearDuplicateFragment('razão é que a é razão', 'razão é que a é razão a')).toBe(true);
+    expect(isNearDuplicateFragment('é', 'razão é que a é razão')).toBe(true);
+  });
+
+  it('does not flag a genuinely new, longer sentence as a near-duplicate', () => {
+    expect(
+      isNearDuplicateFragment(
+        'A Bíblia nos ensina que somos libertos pela graça de Deus.',
+        'Amém.'
+      )
     ).toBe(false);
   });
 });

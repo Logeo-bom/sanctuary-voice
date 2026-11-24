@@ -1,6 +1,11 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import { getKeywordsForLanguage } from '../constants/theologyKeywords';
-import { sanitizeNova2Keywords, selectDeepgramModel } from '../utils/transcriptUtils';
+import {
+  sanitizeNova2Keywords,
+  selectDeepgramModel,
+  isLowConfidenceSegment,
+  isNearDuplicateFragment,
+} from '../utils/transcriptUtils';
 
 export type DeepgramConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'fallback';
 
@@ -43,6 +48,9 @@ export class DeepgramLiveWebSocket {
 
   // Utterance accumulation state to ensure word-for-word complete sentences
   private accumulatedWords: string[] = [];
+  // Per-chunk Deepgram confidence scores for the sentence currently being accumulated, used to
+  // compute an average confidence gate before translating (see MIN_SEGMENT_CONFIDENCE).
+  private accumulatedConfidences: number[] = [];
   private recentSourceSentences: string[] = [];
   private currentSpeakerNum = 0;
   private flushTimer: number | null = null;
@@ -161,6 +169,7 @@ export class DeepgramLiveWebSocket {
             const channel = data?.channel;
             const alt = channel?.alternatives?.[0];
             const transcript = alt?.transcript?.trim();
+            const chunkConfidence = typeof alt?.confidence === 'number' ? alt.confidence : undefined;
             const isFinal = Boolean(data?.is_final);
             const speechFinal = Boolean(data?.speech_final);
 
@@ -189,6 +198,9 @@ export class DeepgramLiveWebSocket {
 
               // Append finalized phrase slice to accumulator
               this.accumulatedWords.push(transcript);
+              if (chunkConfidence !== undefined) {
+                this.accumulatedConfidences.push(chunkConfidence);
+              }
 
               const currentAccumulated = this.accumulatedWords.join(' ').trim();
               // Check if sentence naturally ended with terminal punctuation or Korean verbal ending
@@ -249,9 +261,20 @@ export class DeepgramLiveWebSocket {
     // Join all accumulated chunks into one complete, word-for-word sentence
     const fullOriginalSentence = this.accumulatedWords.join(' ').trim();
     const speakerNum = this.currentSpeakerNum;
+    const confidences = this.accumulatedConfidences;
     this.accumulatedWords = [];
+    this.accumulatedConfidences = [];
 
     if (!fullOriginalSentence) return;
+
+    // Confidence gate: skip translating segments Deepgram itself wasn't confident about, instead
+    // of spending a network round-trip faithfully translating garbled/stuttered source text.
+    if (confidences.length > 0) {
+      const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / confidences.length;
+      if (isLowConfidenceSegment(avgConfidence)) {
+        return;
+      }
+    }
 
     const now = Date.now();
     let dedupedSentence = fullOriginalSentence;
@@ -274,6 +297,13 @@ export class DeepgramLiveWebSocket {
         if (overlap.length >= Math.min(setA.size, setB.size) && now - this.lastFlushedAt < 10000) {
           return;
         }
+      }
+
+      // Near-duplicate filter: catches segments that aren't an *exact* repeat (already handled
+      // above) but mostly overlap with the previous segment without adding new information, e.g. a
+      // stutter variant like "a que a é razão a é é" following a very similar prior fragment.
+      if (now - this.lastFlushedAt < 10000 && isNearDuplicateFragment(cleanCurrent, cleanLast)) {
+        return;
       }
 
       // Strip overlapping prefix if start of current sentence repeats the tail of previous sentence

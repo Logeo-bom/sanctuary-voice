@@ -51,6 +51,74 @@ export function sanitizeNova2Keywords(terms: string[], maxCount = 25): string[] 
   return result;
 }
 
+/**
+ * Deepgram Nova-3 returns an overall `confidence` score (0-1) per transcript alternative.
+ * Garbled/stuttered audio (background noise, cross-talk, a word cut mid-syllable by segmentation)
+ * tends to produce noticeably lower average confidence than clean speech, which otherwise still
+ * gets faithfully translated word-for-word by DeepL/Google ("a que a é razão a é é" -> "Reason is
+ * that which is reason, which is is"). Below this threshold a segment is dropped *before* it's
+ * sent to translation, so the live pipeline doesn't spend a network round-trip translating text
+ * the STT engine itself wasn't confident about - this is a synchronous, zero-latency filter, not
+ * a "wait for more context" delay.
+ */
+export const MIN_SEGMENT_CONFIDENCE = 0.35;
+
+/**
+ * Decides whether a finalized segment's average STT confidence is low enough that it should be
+ * skipped rather than translated. `avgConfidence` of `undefined` (Deepgram didn't report one)
+ * is treated as confident, since we have no evidence to gate on.
+ */
+export function isLowConfidenceSegment(
+  avgConfidence: number | undefined,
+  threshold = MIN_SEGMENT_CONFIDENCE
+): boolean {
+  if (avgConfidence === undefined || Number.isNaN(avgConfidence)) return false;
+  return avgConfidence < threshold;
+}
+
+/**
+ * Cheap, synchronous near-duplicate / low-information fragment detector, extending the existing
+ * *exact*-duplicate check (see `evaluateDuplicateSegment`'s 'skip' branch) to also catch segments
+ * that are only slightly different from the immediately preceding flushed segment - e.g. a word
+ * dropped/reordered mid-stutter - or very short fragments that repeat most of what was already
+ * shown without adding new information. This runs purely on text already received (no network
+ * call, no waiting for more audio), so it doesn't add any perceptible delay to the live stream.
+ */
+export function isNearDuplicateFragment(incomingText: string, previousText: string): boolean {
+  const normalize = (s: string) =>
+    (s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[.,?!;:"']/g, '')
+      .split(/\s+/)
+      .filter(Boolean);
+
+  const incomingWords = normalize(incomingText);
+  const previousWords = normalize(previousText);
+
+  if (incomingWords.length === 0) return true;
+  if (previousWords.length === 0) return false;
+
+  const incomingSet = new Set(incomingWords);
+  const previousSet = new Set(previousWords);
+  const overlap = [...incomingSet].filter((w) => previousSet.has(w)).length;
+  const overlapRatio = overlap / Math.min(incomingSet.size, previousSet.size);
+
+  // A very short fragment (<=2 words) that's already mostly contained in the previous segment adds
+  // no new information for the listener - skip it instead of translating a near-empty echo.
+  if (incomingWords.length <= 2 && overlapRatio >= 0.5) {
+    return true;
+  }
+
+  // Near-duplicate: most words overlap with the previous segment (not an exact match, which is
+  // already handled separately) and the incoming segment isn't meaningfully longer/newer.
+  if (overlapRatio >= 0.75 && incomingWords.length <= previousWords.length + 1) {
+    return true;
+  }
+
+  return false;
+}
+
 export type DuplicateDecision = 'append' | 'skip' | 'replace';
 
 /**

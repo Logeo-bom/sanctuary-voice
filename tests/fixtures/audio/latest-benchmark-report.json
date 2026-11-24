@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-11-20T07:25:03.529Z",
+  "results": [
+    {
+      "fixtureId": "clip-a-clean-pulpit",
+      "name": "Clip A: Clean Pulpit Microphone",
+      "acousticCondition": "clean_pulpit",
+      "durationSeconds": 15,
+      "werScore": {
+        "wer": 0,
+        "werPercentage": "0.0%",
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "hits": 31,
+        "wordCount": 31
+      },
+      "cerScore": {
+        "cer": 0,
+        "cerPercentage": "0.0%",
+        "charCount": 149
+      },
+      "recognizedText": "Welcome brothers and sisters to our sanctuary worship service today. Open your bibles to the book of Romans chapter eight verse twenty-eight. Let us pray together in faith and unity.",
+      "referenceText": "Welcome brothers and sisters to our sanctuary worship service today. Open your bibles to the book of Romans chapter eight verse twenty-eight. Let us pray together in faith and unity.",
+      "passed": true,
+      "thresholdWer": 0.1
+    },
+    {
+      "fixtureId": "clip-b-synth-pad-background",
+      "name": "Clip B: Preacher with Live Keyboard Synth Pad",
+      "acousticCondition": "synth_pad_background",
+      "durationSeconds": 18,
+      "werScore": {
+        "wer": 0.037,
+        "werPercentage": "3.7%",
+        "substitutions": 0,
+        "deletions": 1,
+        "insertions": 0,
+        "hits": 26,
+        "wordCount": 27
+      },
+      "cerScore": {
+        "cer": 0.0342,
+        "cerPercentage": "3.4%",
+        "charCount": 117
+      },
+      "recognizedText": "God is our refuge and our strength, a present help in times of trouble. Even in the midst of the storm, His peace surpasses all understanding.",
+      "referenceText": "God is our refuge and our strength, a very present help in times of trouble. Even in the midst of the storm, His peace surpasses all understanding.",
+      "passed": true,
+      "thresholdWer": 0.2
+    },
+    {
+      "fixtureId": "clip-c-bilingual-dialogue",
+      "name": "Clip C: Alternating Preacher and Stage Interpreter",
+      "acousticCondition": "bilingual_dialogue",
+      "durationSeconds": 20,
+      "werScore": {
+        "wer": 0,
+        "werPercentage": "0.0%",
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "hits": 28,
+        "wordCount": 28
+      },
+      "cerScore": {
+        "cer": 0,
+        "cerPercentage": "0.0%",
+        "charCount": 95
+      },
+      "recognizedText": "The Lord is good all the time. El Señor es bueno todo el tiempo. And all the time, God is good. Y todo el tiempo, Dios es bueno.",
+      "referenceText": "The Lord is good all the time. El Señor es bueno todo el tiempo. And all the time, God is good. Y todo el tiempo, Dios es bueno.",
+      "passed": true,
+      "thresholdWer": 0.15
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "clip-a-clean-pulpit",
+    "name": "Clip A: Clean Pulpit Microphone",
+    "description": "Solo preacher speaking clearly at the podium with direct microphone feed and low ambient noise.",
+    "filePath": "tests/fixtures/audio/clip-a-clean-pulpit.wav",
+    "durationSeconds": 15,
+    "acousticCondition": "clean_pulpit",
+    "sourceLanguage": "en",
+    "targetLanguage": "es",
+    "groundTruthTranscript": "Welcome brothers and sisters to our sanctuary worship service today. Open your bibles to the book of Romans chapter eight verse twenty-eight. Let us pray together in faith and unity.",
+    "groundTruthTranslation": "Bienvenidos hermanos y hermanas a nuestro servicio de adoración en el santuario hoy. Abran sus biblias en el libro de Romanos capítulo ocho versículo veintiocho. Oremos juntos en fe y unidad.",
+    "groundTruthSpeakers": [
+      {
+        "speakerId": "speaker_1",
+        "role": "Lead Preacher",
+        "text": "Welcome brothers and sisters to our sanctuary worship service today. Open your bibles to the book of Romans chapter eight verse twenty-eight. Let us pray together in faith and unity."
+      }
+    ]
+  },
+  {
+    "id": "clip-b-synth-pad-background",
+    "name": "Clip B: Preacher with Live Keyboard Synth Pad",
+    "description": "Preacher speaking while warm synthesizer keyboard pads play 280Hz background music underneath.",
+    "filePath": "tests/fixtures/audio/clip-b-synth-pad-background.wav",
+    "durationSeconds": 18,
+    "acousticCondition": "synth_pad_background",
+    "sourceLanguage": "en",
+    "targetLanguage": "es",
+    "groundTruthTranscript": "God is our refuge and our strength, a very present help in times of trouble. Even in the midst of the storm, His peace surpasses all understanding.",
+    "groundTruthTranslation": "Dios es nuestro refugio y nuestra fortaleza, nuestro pronto auxilio en las tribulaciones. Incluso en medio de la tormenta, su paz sobrepasa todo entendimiento.",
+    "groundTruthSpeakers": [
+      {
+        "speakerId": "speaker_1",
+        "role": "Lead Preacher",
+        "text": "God is our refuge and our strength, a very present help in times of trouble. Even in the midst of the storm, His peace surpasses all understanding."
+      }
+    ]
+  },
+  {
+    "id": "clip-c-bilingual-dialogue",
+    "name": "Clip C: Alternating Preacher and Stage Interpreter",
+    "description": "Preacher speaking in English and stage interpreter immediately repeating the phrase in Spanish in real-time.",
+    "filePath": "tests/fixtures/audio/clip-c-bilingual-dialogue.wav",
+    "durationSeconds": 20,
+    "acousticCondition": "bilingual_dialogue",
+    "sourceLanguage": "en",
+    "targetLanguage": "es",
+    "groundTruthTranscript": "The Lord is good all the time. El Señor es bueno todo el tiempo. And all the time, God is good. Y todo el tiempo, Dios es bueno.",
+    "groundTruthTranslation": "El Señor es bueno todo el tiempo. The Lord is good all the time. Y todo el tiempo, Dios es bueno. And all the time, God is good.",
+    "groundTruthSpeakers": [
+      {
+        "speakerId": "speaker_1",
+        "role": "Lead Preacher",
+        "text": "The Lord is good all the time."
+      },
+      {
+        "speakerId": "speaker_2",
+        "role": "Stage Interpreter",
+        "text": "El Señor es bueno todo el tiempo."
+      },
+      {
+        "speakerId": "speaker_1",
+        "role": "Lead Preacher",
+        "text": "And all the time, God is good."
+      },
+      {
+        "speakerId": "speaker_2",
+        "role": "Stage Interpreter",
+        "text": "Y todo el tiempo, Dios es bueno."
+      }
+    ]
+  }
+]

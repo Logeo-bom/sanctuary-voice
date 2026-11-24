@@ -4,6 +4,14 @@ import { sanitizeNova2Keywords, selectDeepgramModel } from '../utils/transcriptU
 
 export type DeepgramConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'fallback';
 
+// Nova-3 VAD/endpointing tuning, reused from DilMesh's (Deepgram Nova-3 + DeepL/Google/NLLB-200
+// multi-language OBS broadcaster) documented live-captioning configuration: endpointing in the
+// 100-300ms range cuts clauses fast enough for near real-time subtitles without chopping mid-word,
+// and a ~1000ms Utterance End timeout reliably closes a full thought during natural sermon pauses.
+// Smart Format is already enabled separately below.
+const NOVA3_ENDPOINTING_MS = 150;
+const NOVA3_UTTERANCE_END_MS = 1000;
+
 export interface DeepgramLiveSegment {
   speakerId: string;
   speakerLabel: string;
@@ -118,7 +126,7 @@ export class DeepgramLiveWebSocket {
             .slice(0, 20)
             .map((w) => `&keyterm=${encodeURIComponent(w)}`)
             .join('');
-          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
+          wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=multi${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=${NOVA3_ENDPOINTING_MS}&utterance_end_ms=${NOVA3_UTTERANCE_END_MS}${keytermParams}`;
         } else {
           // Use Nova-3 for supported languages (pt, es, en, fr, de, etc.) and Nova-2 for others (ko, no, tl)
           const modelName = selectDeepgramModel(this.sourceLang);
@@ -127,13 +135,14 @@ export class DeepgramLiveWebSocket {
               .slice(0, 20)
               .map((w) => `&keyterm=${encodeURIComponent(w)}`)
               .join('');
-            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keytermParams}`;
+            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-3&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=${NOVA3_ENDPOINTING_MS}&utterance_end_ms=${NOVA3_UTTERANCE_END_MS}${keytermParams}`;
           } else {
             const singleWords = sanitizeNova2Keywords(boostedWords, 25);
             const keywordParams = singleWords
               .map((w) => `&keywords=${encodeURIComponent(w)}:2`)
               .join('');
-            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=300&utterance_end_ms=1000${keywordParams}`;
+            // Nova-2 keeps the same DilMesh-derived endpointing/utterance-end timings for consistent clause cutting
+            wsUrl = `wss://api.deepgram.com/v1/listen?model=nova-2&language=${encodeURIComponent(this.sourceLang)}${pcmParams}&diarize=true&punctuate=true&smart_format=true&interim_results=true&endpointing=${NOVA3_ENDPOINTING_MS}&utterance_end_ms=${NOVA3_UTTERANCE_END_MS}${keywordParams}`;
           }
         }
 
@@ -354,6 +363,22 @@ export class DeepgramLiveWebSocket {
     if (customGlossary !== undefined) {
       this.customChurchGlossary = customGlossary;
     }
+  }
+
+  public async reconnectWithLanguage(
+    sourceLang: string,
+    targetLang: string,
+    customGlossary?: string[]
+  ): Promise<void> {
+    this.setLanguages(sourceLang, targetLang, customGlossary);
+    if (this.socket) {
+      this.stopKeepAlive();
+      try {
+        this.socket.close();
+      } catch {}
+      this.socket = null;
+    }
+    await this.connect();
   }
 
   public close(): void {

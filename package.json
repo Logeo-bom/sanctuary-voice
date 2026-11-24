@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:benchmark": "tsx scripts/run-golden-benchmark.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
@@ -17,18 +19,25 @@
     "@capacitor/cli": "^8.6.0",
     "@capacitor/core": "^8.6.0",
     "@tailwindcss/vite": "^4.3.4",
+    "@types/qrcode": "^1.5.6",
     "lucide-react": "^1.67.0",
+    "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.4"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^8.0.0",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.13",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vercel/node": "^30.0.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^31.0.1",
     "oxlint": "^1.89.0",
+    "tsx": "^4.23.15",
     "typescript": "~7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.1.1"

@@ -108,6 +108,60 @@ const OFFLINE_DICTIONARY: Record<string, Record<string, string>> = {
   },
 };
 
+// GoGospelNow/DilMesh-inspired on-device translation quality upgrade: NLLB-200 (distilled 600M)
+// is a free, open-weights, 200-language neural machine translation model that runs entirely in the
+// browser via transformers.js (WASM), giving meaningfully better offline translation quality than
+// the small hardcoded theological lexicon above, without requiring any cloud API or local Ollama
+// install. It is loaded lazily and only on first actual offline use, same pattern as the Whisper
+// fallback in churchAudioEngine.ts, so churches that never go offline never pay the ~80MB download.
+const NLLB_MODEL_ID = 'Xenova/nllb-200-distilled-600M';
+
+// Minimal mapping from our app's ISO language codes to NLLB's FLORES-200 codes, covering the
+// languages already supported by SUPPORTED_LANGUAGES. Unmapped codes fall back to the lexicon.
+const NLLB_LANG_CODES: Record<string, string> = {
+  en: 'eng_Latn',
+  es: 'spa_Latn',
+  pt: 'por_Latn',
+  ko: 'kor_Hang',
+  fr: 'fra_Latn',
+  de: 'deu_Latn',
+  it: 'ita_Latn',
+  ja: 'jpn_Jpan',
+  zh: 'zho_Hans',
+  ru: 'rus_Cyrl',
+  ar: 'arb_Arab',
+  tl: 'tgl_Latn',
+  no: 'nob_Latn',
+  sv: 'swe_Latn',
+  nl: 'nld_Latn',
+};
+
+interface NllbTranslationResult {
+  translation_text: string;
+}
+
+type NllbTranslator = (
+  text: string,
+  options?: Record<string, unknown>
+) => Promise<NllbTranslationResult | NllbTranslationResult[]>;
+
+let nllbPipelinePromise: Promise<NllbTranslator> | null = null;
+
+async function getNllbPipeline(): Promise<NllbTranslator> {
+  if (!nllbPipelinePromise) {
+    nllbPipelinePromise = (async () => {
+      const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
+      transformers.env.allowLocalModels = false;
+      return (await transformers.pipeline('translation', NLLB_MODEL_ID, {
+        quantized: true,
+      })) as NllbTranslator;
+    })();
+  }
+  return nllbPipelinePromise;
+}
+
 export class OfflineEdgeTranslator {
   private recognition: SpeechRecognitionInstance | null = null;
   private isRunning = false;
@@ -168,17 +222,18 @@ export class OfflineEdgeTranslator {
           const rawText = res[0].transcript.trim();
           if (rawText.length > 0) {
             const t0 = performance.now();
-            const translated = this.translateOffline(rawText, this.sourceLangCode, this.targetLangCode);
-            const srcName =
-              SUPPORTED_LANGUAGES.find((l) => l.code === this.sourceLangCode)?.name || this.sourceLangCode.toUpperCase();
+            void this.translateBestEffort(rawText, this.sourceLangCode, this.targetLangCode).then((translated) => {
+              const srcName =
+                SUPPORTED_LANGUAGES.find((l) => l.code === this.sourceLangCode)?.name || this.sourceLangCode.toUpperCase();
 
-            this.onSegment({
-              originalText: rawText,
-              translatedText: translated,
-              sourceLanguageCode: this.sourceLangCode,
-              sourceLanguageName: srcName,
-              isOffline: true,
-              latencyMs: Math.round(performance.now() - t0),
+              this.onSegment({
+                originalText: rawText,
+                translatedText: translated,
+                sourceLanguageCode: this.sourceLangCode,
+                sourceLanguageName: srcName,
+                isOffline: true,
+                latencyMs: Math.round(performance.now() - t0),
+              });
             });
           }
         }
@@ -240,5 +295,35 @@ export class OfflineEdgeTranslator {
       output = output.replace(regex, v);
     }
     return output;
+  }
+
+  /**
+   * On-device NLLB-200 translation upgrade (GoGospelNow/DilMesh-inspired). Tries the neural model
+   * first for noticeably better offline translation quality than the lexicon; if the model fails to
+   * load (e.g. the very first offline use with zero connectivity to fetch the weights) or the
+   * language pair isn't mapped to a FLORES-200 code, it falls back to the fast lexicon-based
+   * `translateOffline` so captions never stop flowing.
+   */
+  public async translateBestEffort(text: string, srcLang: string, tgtLang: string): Promise<string> {
+    const src = srcLang.toLowerCase().split('-')[0];
+    const tgt = tgtLang.toLowerCase().split('-')[0];
+    if (src === tgt) return text;
+
+    const nllbSrc = NLLB_LANG_CODES[src];
+    const nllbTgt = NLLB_LANG_CODES[tgt];
+    if (nllbSrc && nllbTgt) {
+      try {
+        const translator = await getNllbPipeline();
+        const result = await translator(text, { src_lang: nllbSrc, tgt_lang: nllbTgt });
+        const translated = Array.isArray(result) ? result[0]?.translation_text : result?.translation_text;
+        if (translated && translated.trim().length > 0) {
+          return translated.trim();
+        }
+      } catch (err) {
+        console.warn('[OfflineEdgeTranslator] NLLB-200 neural translation failed, using lexicon fallback:', err);
+      }
+    }
+
+    return this.translateOffline(text, srcLang, tgtLang);
   }
 }

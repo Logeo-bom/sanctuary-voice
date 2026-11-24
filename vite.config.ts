@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 
 function neuralVoiceProxyPlugin(): Plugin {
@@ -55,5 +55,10 @@ export default defineConfig({
     postcss: {
       plugins: [],
     },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./src/__tests__/setup.ts'],
   },
 });

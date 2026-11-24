@@ -12,6 +12,16 @@ export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs:
 export type AudioStreamingSliceCallback = (pcm16Buffer: ArrayBuffer) => void;
 export type MeterUpdateCallback = (snapshot: AudioMeterSnapshot) => void;
 export type StreamEndedCallback = () => void;
+export type OfflineTranscriptCallback = (text: string, durationMs: number) => void;
+
+interface WhisperTranscriptionResult {
+  text: string;
+}
+
+type WhisperTranscriber = (
+  audio: Float32Array,
+  options?: Record<string, unknown>
+) => Promise<WhisperTranscriptionResult | WhisperTranscriptionResult[]>;
 
 export class ChurchAudioEngine {
   private audioContext: AudioContext | null = null;
@@ -38,19 +48,33 @@ export class ChurchAudioEngine {
   private onMeterUpdate: MeterUpdateCallback;
   private onStreamEnded?: StreamEndedCallback;
   private onStreamingSlice?: AudioStreamingSliceCallback;
+  private onOfflineTranscript?: OfflineTranscriptCallback;
+  private whisperPipelinePromise: Promise<WhisperTranscriber> | null = null;
+  // Church Presenter-inspired manual "Offline Sanctuary Mode": when true, the on-device Whisper
+  // path below is used as the PRIMARY transcription path regardless of navigator.onLine, letting the
+  // operator proactively choose a fully local pipeline (e.g. a venue with no Wi-Fi at all) instead of
+  // only falling back reactively once the network actually drops.
+  private forceOffline = false;
 
   constructor(
     config: AudioProcessingConfig,
     onAudioChunk: AudioChunkCallback,
     onMeterUpdate: MeterUpdateCallback,
     onStreamEnded?: StreamEndedCallback,
-    onStreamingSlice?: AudioStreamingSliceCallback
+    onStreamingSlice?: AudioStreamingSliceCallback,
+    onOfflineTranscript?: OfflineTranscriptCallback
   ) {
     this.config = { ...config };
     this.onAudioChunk = onAudioChunk;
     this.onMeterUpdate = onMeterUpdate;
     this.onStreamEnded = onStreamEnded;
     this.onStreamingSlice = onStreamingSlice;
+    this.onOfflineTranscript = onOfflineTranscript;
+  }
+
+  /** Enable/disable manual "Offline Sanctuary Mode" (see `forceOffline` above). */
+  public setForceOffline(enabled: boolean): void {
+    this.forceOffline = enabled;
   }
 
   public static async listAudioInputDevices(): Promise<MediaDeviceInfo[]> {
@@ -454,13 +478,78 @@ export class ChurchAudioEngine {
         // 4. Client-side VAD energy gate: skip uploading silent/empty chunks to save bandwidth & cost
         if (hasSpeechActivity(emitPart)) {
           const duration = Math.round(emitPart.length / 16);
-          const wavBlob = encodeWav16kHz(emitPart, TARGET_SAMPLE_RATE);
-          this.onAudioChunk(wavBlob, 'audio/wav', duration);
+
+          // Offline Whisper fallback (inspired by Church-Cap / GoGospelNow): when the sanctuary's
+          // internet connection is down, Deepgram/Gemini are unreachable anyway, so skip the network
+          // upload entirely and transcribe this chunk on-device instead, keeping captions flowing.
+          const isOffline = this.forceOffline || (typeof navigator !== 'undefined' && navigator.onLine === false);
+          if (isOffline && this.onOfflineTranscript) {
+            void this.transcribeOffline(emitPart, TARGET_SAMPLE_RATE).then((text) => {
+              if (text) {
+                this.onOfflineTranscript?.(text, duration);
+              }
+            });
+          } else {
+            const wavBlob = encodeWav16kHz(emitPart, TARGET_SAMPLE_RATE);
+            this.onAudioChunk(wavBlob, 'audio/wav', duration);
+          }
         }
       } else {
         this.pcm16kChunks = [merged];
         this.pcm16kSampleCount = merged.length;
       }
+    }
+  }
+
+  /**
+   * Lazily loads a small on-device Whisper model (via transformers.js) the first time an offline
+   * transcription is actually needed. Keeping this behind a dynamic CDN import avoids shipping the
+   * ~40MB Whisper runtime in the main app bundle for churches that never lose connectivity; the model
+   * weights are cached by the browser so subsequent offline runs (and repeated outages) are instant.
+   */
+  private async getWhisperPipeline(): Promise<WhisperTranscriber> {
+    if (!this.whisperPipelinePromise) {
+      this.whisperPipelinePromise = (async () => {
+        // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
+        // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
+        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
+        transformers.env.allowLocalModels = false;
+        return (await transformers.pipeline(
+          'automatic-speech-recognition',
+          'Xenova/whisper-tiny',
+          { quantized: true }
+        )) as WhisperTranscriber;
+      })();
+    }
+    return this.whisperPipelinePromise;
+  }
+
+  /**
+   * Offline Whisper fallback (inspired by Church-Cap / GoGospelNow's local-first, no-internet-required
+   * church captioning apps). Transcribes a chunk of 16kHz float32 PCM entirely on-device, so sermon
+   * captions keep flowing even when the sanctuary's Wi-Fi/cellular drops and Deepgram/Gemini are
+   * unreachable. Returns an empty string (never throws) if the on-device model fails to load or run.
+   */
+  public async transcribeOffline(
+    samples: Float32Array,
+    sampleRate: number = TARGET_SAMPLE_RATE
+  ): Promise<string> {
+    try {
+      const transcriber = await this.getWhisperPipeline();
+      const result = await transcriber(samples, {
+        sampling_rate: sampleRate,
+        chunk_length_s: 8,
+        task: 'transcribe',
+      });
+      const text = Array.isArray(result)
+        ? result.map((r) => r.text).join(' ')
+        : result?.text || '';
+      return text.trim();
+    } catch (err) {
+      console.warn('[ChurchAudioEngine] Offline Whisper fallback failed:', err);
+      return '';
     }
   }
 

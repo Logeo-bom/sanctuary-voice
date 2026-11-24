@@ -13,6 +13,8 @@ import {
   BookMarked,
   Plus,
   ArrowLeft,
+  Flag,
+  Check,
 } from 'lucide-react';
 import type {
   AudioProcessingConfig,
@@ -20,6 +22,7 @@ import type {
   SpeechOutputConfig,
   VoiceEngineMode,
 } from '../types/translator';
+import type { FlaggedCorrection } from '../services/glossaryCorrections';
 import { ChurchAudioEngine } from '../services/churchAudioEngine';
 
 interface SettingsAndWalletModalProps {
@@ -40,6 +43,9 @@ interface SettingsAndWalletModalProps {
   customGlossary: string[];
   onAddGlossaryTerm: (term: string) => void;
   onRemoveGlossaryTerm: (term: string) => void;
+  pendingCorrections: FlaggedCorrection[];
+  onApproveCorrection: (correctionId: string) => void;
+  onRejectCorrection: (correctionId: string) => void;
 }
 
 export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
@@ -56,6 +62,9 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   customGlossary,
   onAddGlossaryTerm,
   onRemoveGlossaryTerm,
+  pendingCorrections,
+  onApproveCorrection,
+  onRejectCorrection,
 }) => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [newTermInput, setNewTermInput] = useState<string>('');
@@ -298,6 +307,53 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
                   </button>
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Glossary auto-expansion: anyone listening can flag a mis-heard word on a live segment
+              (see the flag icon on transcript cards); those suggestions land here as "pending" and
+              only get added to the boost list above once the operator reviews and approves them. */}
+          {pendingCorrections.length > 0 && (
+            <div className="pt-2 mt-2 border-t border-slate-800 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-300">
+                <Flag className="w-3.5 h-3.5" />
+                Flagged Corrections Awaiting Review ({pendingCorrections.length})
+              </div>
+              <div className="space-y-1.5">
+                {pendingCorrections.map((correction) => (
+                  <div
+                    key={correction.id}
+                    className="flex items-center justify-between gap-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-slate-400 truncate">
+                        Heard: <span className="italic">“{correction.heardText}”</span>
+                      </p>
+                      <p className="text-xs text-slate-100 font-medium truncate">
+                        Should be: <span className="text-amber-300">{correction.correctedTerm}</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onApproveCorrection(correction.id)}
+                        className="p-1.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+                        title="Approve: add to church glossary"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRejectCorrection(correction.id)}
+                        className="p-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-400 hover:text-white cursor-pointer"
+                        title="Reject suggestion"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

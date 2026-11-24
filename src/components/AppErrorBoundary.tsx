@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
+import { recordCrash } from '../services/crashTelemetry';
 
 interface Props {
   children: ReactNode;
@@ -25,6 +26,11 @@ export class AppErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     console.error('Sanctuary App Error Boundary caught:', error, errorInfo);
+    // Crash telemetry: persist the render crash locally (and best-effort relay it) so field
+    // failures are visible later, even though the automatic reload below clears this component's
+    // own state. The operator's listening configuration is separately persisted via
+    // `sessionRecovery.ts` in App.tsx, so a "Resume" prompt can appear right after this reload.
+    recordCrash(error, 'react-error-boundary');
   }
 
   private handleReset = (): void => {

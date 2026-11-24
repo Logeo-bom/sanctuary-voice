@@ -72,6 +72,13 @@ import {
   saveFlaggedCorrections,
   createFlaggedCorrection,
 } from './services/glossaryCorrections';
+import { recordCrash } from './services/crashTelemetry';
+import {
+  type SessionSnapshot,
+  saveSessionSnapshot,
+  loadRecoverableSessionSnapshot,
+  clearSessionSnapshot,
+} from './services/sessionRecovery';
 
 const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
 const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
@@ -271,6 +278,12 @@ export function App() {
   // This is purely an informational status for the UI; nothing the operator has to press.
   const [connectionMode, setConnectionMode] = useState<'cloud' | 'offline' | 'checking'>('checking');
   const connectionModeRef = useRef<'cloud' | 'offline' | 'checking'>(connectionMode);
+  // Automatic session recovery: if a previous tab was mid-service when it crashed/reloaded, this
+  // holds the recoverable snapshot so a "Resume previous session?" banner can be shown and let the
+  // operator restart with one tap instead of reconfiguring languages/view mode from scratch.
+  const [recoverableSnapshot, setRecoverableSnapshot] = useState<SessionSnapshot | null>(() =>
+    loadRecoverableSessionSnapshot()
+  );
   // QR-code local caption distribution (Church-Cap-inspired): a short-lived session id that the main
   // device publishes segments under, so a congregant's phone can scan a QR code and view captions
   // in their own browser with zero install.
@@ -573,6 +586,53 @@ export function App() {
       window.clearInterval(intervalId);
     };
   }, [isListening]);
+
+  // Automatic session recovery: continuously persist just the configuration needed to resume a live
+  // service (languages, view mode) while listening is active, so a crash/reload/force-close mid-
+  // service doesn't force the operator to reconfigure everything from scratch. Also saves on
+  // `beforeunload` as a last-chance write for abrupt tab closes. Intentionally does NOT persist the
+  // transcript itself (ephemeral, regenerated live) - only enough to safely restart listening.
+  useEffect(() => {
+    const persist = () => {
+      saveSessionSnapshot({
+        wasListening: isListening,
+        speaker1SourceLang,
+        targetLangCode,
+        voiceViewMode,
+        displayStyle,
+      });
+    };
+    if (isListening) {
+      persist();
+      window.addEventListener('beforeunload', persist);
+      return () => window.removeEventListener('beforeunload', persist);
+    }
+  }, [isListening, speaker1SourceLang, targetLangCode, voiceViewMode, displayStyle]);
+
+  const handleResumeSession = useCallback(async () => {
+    if (!recoverableSnapshot) return;
+    setSpeaker1SourceLang(recoverableSnapshot.speaker1SourceLang);
+    localStorage.setItem(STORAGE_KEY_SOURCE_LANG, recoverableSnapshot.speaker1SourceLang);
+    speaker1LangRef.current = recoverableSnapshot.speaker1SourceLang;
+    setTargetLangCode(recoverableSnapshot.targetLangCode);
+    localStorage.setItem(STORAGE_KEY_TARGET_LANG, recoverableSnapshot.targetLangCode);
+    targetLangRef.current = recoverableSnapshot.targetLangCode;
+    setVoiceViewMode(recoverableSnapshot.voiceViewMode);
+    voiceViewModeRef.current = recoverableSnapshot.voiceViewMode;
+    setDisplayStyle(recoverableSnapshot.displayStyle);
+    setRecoverableSnapshot(null);
+    try {
+      await toggleLiveMicrophone();
+    } catch (err) {
+      recordCrash(err, 'session-recovery-resume');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recoverableSnapshot]);
+
+  const handleDismissRecovery = useCallback(() => {
+    setRecoverableSnapshot(null);
+    clearSessionSnapshot();
+  }, []);
 
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1214,6 +1274,9 @@ export function App() {
       setLiveInterimText('');
       setIsListening(false);
       setIsOfflineEdgeActive(false);
+      // Intentional stop: clear the recovery snapshot so a "Resume previous session?" banner
+      // doesn't incorrectly appear later for a session the operator deliberately ended.
+      clearSessionSnapshot();
       return;
     }
 
@@ -1339,6 +1402,7 @@ export function App() {
 
       setIsListening(true);
     } catch (err) {
+      recordCrash(err, 'toggleLiveMicrophone-start');
       const isMobile =
         typeof navigator !== 'undefined' &&
         /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
@@ -2416,6 +2480,34 @@ export function App() {
             >
               “{activeScripture.text}”
             </p>
+          </div>
+        )}
+
+        {/* Automatic Session Recovery Banner: shown after a crash/reload/force-close interrupted a
+           live service, letting the operator resume with one tap instead of reconfiguring languages
+           and view mode from scratch. */}
+        {recoverableSnapshot && !isListening && (
+          <div className="mx-4 mt-2 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-200 flex flex-col gap-1.5 shadow-sm">
+            <span className="leading-snug font-medium">
+              It looks like your last service was interrupted. Resume where you left off?
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleResumeSession()}
+                className="px-2.5 py-1 rounded-lg bg-sky-500 text-slate-950 font-bold text-[10px] flex items-center gap-1 shadow hover:bg-sky-400 transition cursor-pointer"
+              >
+                <Mic className="w-3 h-3" />
+                Resume Previous Session
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissRecovery}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-semibold text-[10px] hover:bg-slate-700 transition cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 

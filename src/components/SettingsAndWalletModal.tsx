@@ -24,6 +24,7 @@ import type {
 } from '../types/translator';
 import type { FlaggedCorrection } from '../services/glossaryCorrections';
 import { ChurchAudioEngine } from '../services/churchAudioEngine';
+import { type CrashEntry, loadCrashLog, clearCrashLog } from '../services/crashTelemetry';
 
 interface SettingsAndWalletModalProps {
   isOpen: boolean;
@@ -68,6 +69,8 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
 }) => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [newTermInput, setNewTermInput] = useState<string>('');
+  const [crashLog, setCrashLog] = useState<CrashEntry[]>([]);
+  const [crashLogCopied, setCrashLogCopied] = useState<boolean>(false);
 
   const handleAddTerm = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +85,27 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
       void ChurchAudioEngine.listAudioInputDevices().then((devs) => {
         setAudioDevices(devs);
       });
+      // Crash telemetry diagnostics: refresh the local crash log every time the modal opens, so an
+      // operator/technical volunteer can see whether the app has been crashing in the field without
+      // needing developer tools.
+      setCrashLog(loadCrashLog());
     }
   }, [isOpen]);
+
+  const handleCopyCrashLog = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(crashLog, null, 2));
+      setCrashLogCopied(true);
+      window.setTimeout(() => setCrashLogCopied(false), 2000);
+    } catch {
+      window.prompt('Copy the crash log:', JSON.stringify(crashLog, null, 2));
+    }
+  };
+
+  const handleClearCrashLog = () => {
+    clearCrashLog();
+    setCrashLog([]);
+  };
 
   if (!isOpen) return null;
 
@@ -499,6 +521,64 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
               <div className="text-[10px] text-slate-400 mt-0.5">
                 Mission trip / conference
               </div>
+            </button>
+          </div>
+        </div>
+
+        {/* 6. Crash Telemetry Diagnostics: surfaces the local crash log (captured by AppErrorBoundary
+           and the global window error/unhandledrejection handlers) so a technical volunteer can see
+           whether the app has been failing in the field without needing developer tools. */}
+        <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <Sliders className="w-4 h-4 text-rose-400" />
+              Diagnostics &amp; Crash Log
+            </span>
+            <span
+              className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                crashLog.length > 0
+                  ? 'text-rose-300 bg-rose-500/10 border-rose-500/20'
+                  : 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20'
+              }`}
+            >
+              {crashLog.length} recorded
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Errors are recorded locally on this device (and best-effort relayed) so field issues stay
+            visible even after the app automatically recovers.
+          </p>
+          {crashLog.length > 0 && (
+            <div className="max-h-28 overflow-y-auto space-y-1 bg-slate-900 rounded-lg p-2 border border-slate-800">
+              {crashLog
+                .slice(-5)
+                .reverse()
+                .map((entry) => (
+                  <div key={entry.id} className="text-[10px] text-slate-300">
+                    <span className="text-slate-500">
+                      {new Date(entry.timestamp).toLocaleTimeString()} · {entry.context}:
+                    </span>{' '}
+                    {entry.message}
+                  </div>
+                ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={handleCopyCrashLog}
+              disabled={crashLog.length === 0}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-semibold text-[10px] hover:bg-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {crashLogCopied ? 'Copied!' : 'Copy Log'}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearCrashLog}
+              disabled={crashLog.length === 0}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 font-semibold text-[10px] hover:bg-slate-700 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Clear Log
             </button>
           </div>
         </div>

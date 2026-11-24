@@ -44,13 +44,13 @@ import {
   SPEAKER_PALETTE,
   SUPPORTED_LANGUAGES,
 } from './constants/languages';
-import { ChurchAudioEngine } from './services/churchAudioEngine';
+import { ChurchAudioEngine, preloadWhisperModel } from './services/churchAudioEngine';
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
 import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
-import { OfflineEdgeTranslator } from './services/offlineEdgeTranslator';
+import { OfflineEdgeTranslator, preloadNllbModel } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 import {
   detectScriptureReferences,
@@ -78,6 +78,33 @@ const STORAGE_KEY_SPEECH_CONFIG = 'sanctuary_voice_speech_config_v1';
 const STORAGE_KEY_SOURCE_LANG = 'sanctuary_voice_source_lang_v1';
 const STORAGE_KEY_TARGET_LANG = 'sanctuary_voice_target_lang_v1';
 const STORAGE_KEY_CHURCH_GLOSSARY = 'sanctuary_voice_church_glossary_v1';
+
+// Automatic connectivity-health probe (missionary/remote-venue design, replacing the old manual
+// "Offline Sanctuary Mode" toggle): `navigator.onLine` only reflects the OS's link-layer state, which
+// can be `true` even when the actual network is too slow/unstable for Deepgram's WebSocket or the
+// translate APIs to work ("online but unusable"). This does a short, timed network round-trip to our
+// own serverless origin; any settled HTTP response (even a 404/405) proves the network path is
+// actually usable, while a timeout or thrown fetch error means it isn't. Never throws.
+async function probeCloudConnectivity(timeoutMs = 4000): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  if (typeof fetch === 'undefined') return true;
+  try {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await fetch('/api/deepgram-token', {
+        method: 'HEAD',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      return true;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  } catch {
+    return false;
+  }
+}
 
 export function App() {
   // QR-code local caption distribution: if this page was opened by scanning the share QR code
@@ -227,16 +254,19 @@ export function App() {
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
   });
   const [isOfflineEdgeActive, setIsOfflineEdgeActive] = useState<boolean>(false);
-  // Manual "Offline Sanctuary Mode" (Church Presenter-inspired): lets the operator proactively run
-  // the on-device Whisper + NLLB-200/lexicon pipeline as the primary path at service start (e.g. a
-  // venue with no Wi-Fi at all), instead of only auto-triggering it reactively when connectivity drops.
-  const [offlineSanctuaryMode, setOfflineSanctuaryMode] = useState<boolean>(false);
+  // Automatic connectivity-health mode (Church Presenter-inspired "offline-first", missionary use
+  // case): replaces the old manually-operated "Offline Sanctuary Mode" button. A background probe
+  // (see `probeCloudConnectivity`/the connectivity-health effect below) continuously decides whether
+  // the cloud pipeline (Deepgram/Gemini) is actually usable — not just whether `navigator.onLine` is
+  // true — and silently routes audio through the on-device Whisper/NLLB-200 pipeline when it isn't.
+  // This is purely an informational status for the UI; nothing the operator has to press.
+  const [connectionMode, setConnectionMode] = useState<'cloud' | 'offline' | 'checking'>('checking');
+  const connectionModeRef = useRef<'cloud' | 'offline' | 'checking'>(connectionMode);
   // QR-code local caption distribution (Church-Cap-inspired): a short-lived session id that the main
   // device publishes segments under, so a congregant's phone can scan a QR code and view captions
   // in their own browser with zero install.
   const [captionShareSessionId, setCaptionShareSessionId] = useState<string | null>(null);
   const [isShareQrOpen, setIsShareQrOpen] = useState<boolean>(false);
-  const offlineSanctuaryModeRef = useRef<boolean>(offlineSanctuaryMode);
   const captionShareSessionIdRef = useRef<string | null>(captionShareSessionId);
 
   const consecutiveFailuresRef = useRef<number>(0);
@@ -330,8 +360,8 @@ export function App() {
   }, [customChurchGlossary]);
 
   useEffect(() => {
-    offlineSanctuaryModeRef.current = offlineSanctuaryMode;
-  }, [offlineSanctuaryMode]);
+    connectionModeRef.current = connectionMode;
+  }, [connectionMode]);
 
   useEffect(() => {
     captionShareSessionIdRef.current = captionShareSessionId;
@@ -438,7 +468,9 @@ export function App() {
     offlineEdgeEngineRef.current?.setLanguages(speaker1SourceLang, targetLangCode);
   }, [speaker1SourceLang, targetLangCode]);
 
-  // Network State Tracker for Offline Sanctuary Mode
+  // Network State Tracker: reacts instantly to OS-level online/offline events. This catches the
+  // "fully offline" case immediately; the periodic probe effect below additionally catches the
+  // "online but unusable" case that these browser events can't detect.
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -447,10 +479,12 @@ export function App() {
         setIsOfflineEdgeActive(false);
         offlineEdgeEngineRef.current?.stop();
       }
+      setConnectionMode('checking');
     };
     const handleOffline = () => {
       setIsOnline(false);
-      setErrorNotice('Offline Sanctuary Mode: Device network disconnected. Running local on-device speech model.');
+      setConnectionMode('offline');
+      setErrorNotice('Offline mode: device network disconnected. Running local on-device speech model.');
       if (isListening && !isOfflineEdgeActive) {
         setIsOfflineEdgeActive(true);
         deepgramWsRef.current?.close();
@@ -486,6 +520,45 @@ export function App() {
       offlineEdgeEngineRef.current?.stop();
     };
   }, [isListening, isOfflineEdgeActive]);
+
+  // Eager offline-model pre-caching (missionary/remote-venue design): as soon as the app has ANY
+  // connectivity — on first load, or the moment connectivity returns after being offline — silently
+  // start downloading the on-device Whisper + NLLB-200 models in the background. By the time a
+  // missionary actually reaches a location with no internet at all, the fallback models are already
+  // cached locally and don't themselves need a network call to become available.
+  useEffect(() => {
+    if (!isOnline) return;
+    const idleHandle = window.setTimeout(() => {
+      preloadWhisperModel();
+      preloadNllbModel();
+    }, 1500);
+    return () => window.clearTimeout(idleHandle);
+  }, [isOnline]);
+
+  // Continuous connectivity-health probe (replaces the old manual "Offline Sanctuary Mode" toggle).
+  // While a service is live, periodically verifies the cloud pipeline is actually reachable (not just
+  // `navigator.onLine`) and automatically engages/disengages the audio engine's on-device Whisper
+  // fallback accordingly — no operator action required, and it recovers back to cloud mode on its own
+  // once connectivity genuinely returns.
+  useEffect(() => {
+    if (!isListening) return;
+
+    let cancelled = false;
+    const runProbe = async () => {
+      const healthy = await probeCloudConnectivity();
+      if (cancelled) return;
+      setConnectionMode(healthy ? 'cloud' : 'offline');
+      audioEngineRef.current?.setForceOffline(!healthy);
+    };
+
+    void runProbe();
+    const intervalId = window.setInterval(() => void runProbe(), 20000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isListening]);
 
   useEffect(() => {
     feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1135,10 +1208,15 @@ export function App() {
       // Unlock mobile browser speech playback on user gesture
       speechEngineRef.current?.unlockAudio();
 
-      // Run the fully local pipeline (Web Speech API + NLLB-200/lexicon translation) when the device
-      // is actually offline, OR proactively when the operator has manually enabled "Offline Sanctuary
-      // Mode" (Church Presenter-inspired: offline as a deliberate primary mode, not just a fallback).
-      if (!navigator.onLine || offlineSanctuaryModeRef.current) {
+      // Automatic connectivity-health check (replaces the old manual "Offline Sanctuary Mode" toggle):
+      // always attempt the cloud pipeline first for best accuracy, but verify it's actually reachable
+      // (not just `navigator.onLine`) before committing to it. If the network is down or unusably
+      // slow, start directly in the fully local pipeline — no operator action required, which matters
+      // for missionaries/remote venues who won't know to flip a switch before the service starts.
+      setConnectionMode('checking');
+      const cloudHealthyAtStart = await probeCloudConnectivity();
+      setConnectionMode(cloudHealthyAtStart ? 'cloud' : 'offline');
+      if (!cloudHealthyAtStart) {
         setIsOfflineEdgeActive(true);
         if (!offlineEdgeEngineRef.current) {
           offlineEdgeEngineRef.current = new OfflineEdgeTranslator(
@@ -2573,21 +2651,32 @@ export function App() {
             </div>
           </div>
 
-          {/* Offline Sanctuary Mode & QR Caption Share (Church Presenter / Church-Cap-inspired) */}
+          {/* Automatic Connection Mode status & QR Caption Share (Church Presenter / Church-Cap-inspired).
+              Connection mode is detected automatically (see `probeCloudConnectivity`) and is purely
+              informational — there is nothing to press here, which matters for missionaries/remote
+              venues who won't know to flip a manual switch before a service starts. */}
           <div className="flex items-center gap-2 mt-2">
-            <button
-              type="button"
-              onClick={() => setOfflineSanctuaryMode((prev) => !prev)}
-              title="Proactively run the fully on-device Whisper + translation pipeline, even if you have internet — ideal for venues with no reliable Wi-Fi."
-              className={`flex-1 px-3 py-1.5 rounded-full text-[10px] font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border ${
-                offlineSanctuaryMode
+            <div
+              title="Automatically detected: switches to the on-device Whisper + translation pipeline whenever the cloud connection is down or unusable, and back to cloud whenever it recovers."
+              className={`flex-1 px-3 py-1.5 rounded-full text-[10px] font-semibold flex items-center justify-center gap-1.5 border ${
+                connectionMode === 'offline'
                   ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                  : connectionMode === 'checking'
+                  ? 'bg-slate-900 border-slate-800 text-slate-400'
+                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               }`}
             >
-              <WifiOff className="w-3 h-3" />
-              Offline Sanctuary Mode {offlineSanctuaryMode ? 'ON' : 'OFF'}
-            </button>
+              {connectionMode === 'offline' ? (
+                <WifiOff className="w-3 h-3" />
+              ) : (
+                <Wifi className="w-3 h-3" />
+              )}
+              {connectionMode === 'offline'
+                ? 'Offline Mode (Local On-Device Engine)'
+                : connectionMode === 'checking'
+                ? 'Checking Connection…'
+                : 'Cloud Mode'}
+            </div>
             <button
               type="button"
               onClick={() => {

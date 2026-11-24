@@ -23,6 +23,43 @@ type WhisperTranscriber = (
   options?: Record<string, unknown>
 ) => Promise<WhisperTranscriptionResult | WhisperTranscriptionResult[]>;
 
+// Module-level (not instance-bound) singleton so the on-device Whisper model can be eagerly
+// pre-cached (see `preloadWhisperModel` below) as soon as the app has any connectivity at all,
+// instead of only being fetched reactively the first time a `ChurchAudioEngine` instance actually
+// needs it mid-outage. Once loaded, the browser's HTTP cache keeps it available fully offline.
+let whisperPipelinePromise: Promise<WhisperTranscriber> | null = null;
+
+async function getWhisperPipeline(): Promise<WhisperTranscriber> {
+  if (!whisperPipelinePromise) {
+    whisperPipelinePromise = (async () => {
+      // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
+      // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
+      const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
+      transformers.env.allowLocalModels = false;
+      return (await transformers.pipeline(
+        'automatic-speech-recognition',
+        'Xenova/whisper-tiny',
+        { quantized: true }
+      )) as WhisperTranscriber;
+    })();
+  }
+  return whisperPipelinePromise;
+}
+
+/**
+ * Eagerly downloads and caches the on-device Whisper model ahead of time (missionary/remote-venue
+ * use case: by the time the device actually loses connectivity in the field, the model is already
+ * warm, so the offline fallback doesn't itself require a network call). Safe to call repeatedly —
+ * it's a no-op once the model is loaded or already loading. Never throws.
+ */
+export function preloadWhisperModel(): void {
+  void getWhisperPipeline().catch((err) => {
+    console.warn('[ChurchAudioEngine] Eager Whisper model pre-cache failed (will retry on demand):', err);
+  });
+}
+
 export class ChurchAudioEngine {
   private audioContext: AudioContext | null = null;
   private rawStream: MediaStream | null = null;
@@ -49,11 +86,10 @@ export class ChurchAudioEngine {
   private onStreamEnded?: StreamEndedCallback;
   private onStreamingSlice?: AudioStreamingSliceCallback;
   private onOfflineTranscript?: OfflineTranscriptCallback;
-  private whisperPipelinePromise: Promise<WhisperTranscriber> | null = null;
-  // Church Presenter-inspired manual "Offline Sanctuary Mode": when true, the on-device Whisper
-  // path below is used as the PRIMARY transcription path regardless of navigator.onLine, letting the
-  // operator proactively choose a fully local pipeline (e.g. a venue with no Wi-Fi at all) instead of
-  // only falling back reactively once the network actually drops.
+  // Automatic connectivity-health override (see `setForceOffline` below): driven by App.tsx's
+  // background connectivity probe rather than a manual operator toggle, so the primary pipeline
+  // keeps adapting continuously (not just once at service start) to "online but unusable" networks
+  // that `navigator.onLine` alone can't detect (missionary/remote-venue use case).
   private forceOffline = false;
 
   constructor(
@@ -72,7 +108,10 @@ export class ChurchAudioEngine {
     this.onOfflineTranscript = onOfflineTranscript;
   }
 
-  /** Enable/disable manual "Offline Sanctuary Mode" (see `forceOffline` above). */
+  /**
+   * Automatically engaged/disengaged by App.tsx's periodic connectivity health probe (see
+   * `forceOffline` above) — no longer a manually operated toggle.
+   */
   public setForceOffline(enabled: boolean): void {
     this.forceOffline = enabled;
   }
@@ -502,31 +541,6 @@ export class ChurchAudioEngine {
   }
 
   /**
-   * Lazily loads a small on-device Whisper model (via transformers.js) the first time an offline
-   * transcription is actually needed. Keeping this behind a dynamic CDN import avoids shipping the
-   * ~40MB Whisper runtime in the main app bundle for churches that never lose connectivity; the model
-   * weights are cached by the browser so subsequent offline runs (and repeated outages) are instant.
-   */
-  private async getWhisperPipeline(): Promise<WhisperTranscriber> {
-    if (!this.whisperPipelinePromise) {
-      this.whisperPipelinePromise = (async () => {
-        // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
-        // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
-        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
-        transformers.env.allowLocalModels = false;
-        return (await transformers.pipeline(
-          'automatic-speech-recognition',
-          'Xenova/whisper-tiny',
-          { quantized: true }
-        )) as WhisperTranscriber;
-      })();
-    }
-    return this.whisperPipelinePromise;
-  }
-
-  /**
    * Offline Whisper fallback (inspired by Church-Cap / GoGospelNow's local-first, no-internet-required
    * church captioning apps). Transcribes a chunk of 16kHz float32 PCM entirely on-device, so sermon
    * captions keep flowing even when the sanctuary's Wi-Fi/cellular drops and Deepgram/Gemini are
@@ -537,7 +551,7 @@ export class ChurchAudioEngine {
     sampleRate: number = TARGET_SAMPLE_RATE
   ): Promise<string> {
     try {
-      const transcriber = await this.getWhisperPipeline();
+      const transcriber = await getWhisperPipeline();
       const result = await transcriber(samples, {
         sampling_rate: sampleRate,
         chunk_length_s: 8,

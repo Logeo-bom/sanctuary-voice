@@ -162,6 +162,19 @@ async function getNllbPipeline(): Promise<NllbTranslator> {
   return nllbPipelinePromise;
 }
 
+/**
+ * Eagerly downloads and caches the on-device NLLB-200 translation model ahead of time, the same
+ * missionary/remote-venue rationale as `preloadWhisperModel` in churchAudioEngine.ts: fetch it the
+ * first time the app has any connectivity (e.g. at the home church before heading to the field) so
+ * the offline translation path is already warm by the time it's actually needed with zero network.
+ * Safe to call repeatedly; no-op once loaded or already loading. Never throws.
+ */
+export function preloadNllbModel(): void {
+  void getNllbPipeline().catch((err) => {
+    console.warn('[OfflineEdgeTranslator] Eager NLLB-200 model pre-cache failed (will retry on demand):', err);
+  });
+}
+
 export class OfflineEdgeTranslator {
   private recognition: SpeechRecognitionInstance | null = null;
   private isRunning = false;

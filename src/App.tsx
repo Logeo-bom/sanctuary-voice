@@ -60,10 +60,12 @@ import {
 import {
   createCaptionSessionId,
   buildListenerShareUrl,
+  buildBroadcastOverlayUrl,
   publishCaptionSegment,
 } from './services/captionRelayClient';
 import { CaptionShareQR } from './components/CaptionShareQR';
 import { ListenerCaptionView } from './components/ListenerCaptionView';
+import { BroadcastOverlayView } from './components/BroadcastOverlayView';
 import {
   type FlaggedCorrection,
   loadFlaggedCorrections,
@@ -117,6 +119,13 @@ export function App() {
   const [listenerLangCode] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     return new URLSearchParams(window.location.search).get('lang');
+  });
+  // OBS/ProPresenter browser-source output (Church-Cap/DilMesh-inspired): if this page was opened
+  // with a `?obs=<sessionId>` param (added as an OBS Browser Source or ProPresenter web overlay),
+  // render the transparent chrome-free caption overlay instead of the full operator app.
+  const [obsSessionId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('obs');
   });
 
   const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>(() => {
@@ -267,6 +276,11 @@ export function App() {
   // in their own browser with zero install.
   const [captionShareSessionId, setCaptionShareSessionId] = useState<string | null>(null);
   const [isShareQrOpen, setIsShareQrOpen] = useState<boolean>(false);
+  // Consolidated "Share" menu: previously "Share QR" and "Broadcast Overlay" were two separate,
+  // similarly-styled buttons sitting side by side with jargon-y labels, which was confusing for
+  // non-technical operators (no cue for which one to use, or that one targets individual phones
+  // while the other targets a projector/stream). Grouped under one plain-language entry point.
+  const [isShareMenuOpen, setIsShareMenuOpen] = useState<boolean>(false);
   const captionShareSessionIdRef = useRef<string | null>(captionShareSessionId);
 
   const consecutiveFailuresRef = useRef<number>(0);
@@ -1826,6 +1840,11 @@ export function App() {
     return <ListenerCaptionView sessionId={listenerSessionId} targetLangName={langMeta?.name} />;
   }
 
+  if (obsSessionId) {
+    const langMeta = SUPPORTED_LANGUAGES.find((l) => l.code === listenerLangCode);
+    return <BroadcastOverlayView sessionId={obsSessionId} targetLangName={langMeta?.name} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center sm:p-6">
       {/* ANDROID PHONE MOCKUP FRAME */}
@@ -2677,20 +2696,76 @@ export function App() {
                 ? 'Checking Connection…'
                 : 'Cloud Mode'}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (!captionShareSessionId) {
-                  setCaptionShareSessionId(createCaptionSessionId());
-                }
-                setIsShareQrOpen(true);
-              }}
-              title="Show a QR code congregants can scan to view live captions on their own phone — no app install required."
-              className="px-3 py-1.5 rounded-full text-[10px] font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
-            >
-              <QrCode className="w-3 h-3" />
-              Share QR
-            </button>
+            {/* Consolidated "Share" menu (plain-language renaming + grouping): replaces the former
+               two side-by-side "Share QR" / "Broadcast Overlay" buttons, which looked like variants
+               of the same thing and required the operator to already know jargon like "OBS" or
+               "overlay" to pick the right one. One entry point now exposes both distribution
+               channels with self-explanatory labels describing *where* captions end up. */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsShareMenuOpen((prev) => !prev)}
+                title="Share the live captions with congregants' phones, or send them to a projector/stream."
+                className={`px-3 py-1.5 rounded-full text-[10px] font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border ${
+                  isShareMenuOpen
+                    ? 'bg-slate-800 border-slate-700 text-slate-100'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <QrCode className="w-3 h-3" />
+                Share
+                <ChevronDown className={`w-3 h-3 transition-transform ${isShareMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isShareMenuOpen && (
+                <div className="absolute right-0 bottom-full mb-2 w-60 rounded-xl border border-slate-800 bg-slate-900 shadow-xl z-20 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!captionShareSessionId) {
+                        setCaptionShareSessionId(createCaptionSessionId());
+                      }
+                      setIsShareQrOpen(true);
+                      setIsShareMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+                    <span>
+                      <span className="block text-xs font-semibold text-slate-100">Share to Phones</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">
+                        Congregants scan a QR code to follow captions on their own phone — no app install.
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const sessionId = captionShareSessionId || createCaptionSessionId();
+                      if (!captionShareSessionId) {
+                        setCaptionShareSessionId(sessionId);
+                      }
+                      const overlayUrl = buildBroadcastOverlayUrl(sessionId, targetLangCode);
+                      try {
+                        await navigator.clipboard.writeText(overlayUrl);
+                        setErrorNotice('Screen/stream link copied — add it as an OBS Browser Source or ProPresenter web overlay.');
+                      } catch {
+                        window.prompt('Copy this screen/stream overlay URL:', overlayUrl);
+                      }
+                      setIsShareMenuOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-2.5 flex items-start gap-2.5 hover:bg-slate-800 transition cursor-pointer border-t border-slate-800"
+                  >
+                    <Tv className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                    <span>
+                      <span className="block text-xs font-semibold text-slate-100">Send to Screen/Stream</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">
+                        Copies a link for a projector, OBS, or ProPresenter — shows the latest caption only.
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

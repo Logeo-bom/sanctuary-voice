@@ -33,6 +33,20 @@ export function buildListenerShareUrl(sessionId: string, targetLangCode: string)
   return url.toString();
 }
 
+/**
+ * OBS/ProPresenter browser-source output (Church-Cap/DilMesh-inspired): builds a URL to the
+ * transparent, chrome-free caption overlay (see BroadcastOverlayView) that can be added directly
+ * as an OBS "Browser Source" or ProPresenter web overlay for in-building screens/streaming, as an
+ * alternative distribution channel to the per-listener QR view above.
+ */
+export function buildBroadcastOverlayUrl(sessionId: string, targetLangCode: string): string {
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.searchParams.set('obs', sessionId);
+  url.searchParams.set('lang', targetLangCode);
+  return url.toString();
+}
+
 export async function publishCaptionSegment(
   sessionId: string,
   segment: RelaySegmentPayload

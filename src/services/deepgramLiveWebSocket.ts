@@ -5,6 +5,7 @@ import {
   selectDeepgramModel,
   isLowConfidenceSegment,
   isNearDuplicateFragment,
+  isInternallyGarbledSentence,
 } from '../utils/transcriptUtils';
 
 export type DeepgramConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'fallback';
@@ -274,6 +275,14 @@ export class DeepgramLiveWebSocket {
       if (isLowConfidenceSegment(avgConfidence)) {
         return;
       }
+    }
+
+    // Internal word-salad gate: catches a segment that garbles *within itself* (a handful of short
+    // words repeating scrambled, e.g. "a que a é razão a é é"), independent of confidence score or
+    // overlap with the previous segment - this is the pattern that slipped past both of those
+    // existing filters. Same synchronous, zero-latency treatment as the checks above.
+    if (isInternallyGarbledSentence(fullOriginalSentence)) {
+      return;
     }
 
     const now = Date.now();

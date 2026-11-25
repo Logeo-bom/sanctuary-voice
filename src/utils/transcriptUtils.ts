@@ -119,6 +119,42 @@ export function isNearDuplicateFragment(incomingText: string, previousText: stri
   return false;
 }
 
+/**
+ * Catches "word-salad" garble that neither the confidence gate nor the near-duplicate filter can
+ * see, because it doesn't involve low Deepgram confidence or overlap with the *previous* segment -
+ * it's internal: the same word(s) repeat scrambled throughout a single segment, e.g.
+ * "a que a é razão a é é" ("Reason is that which is reason, which is is"). This happens when Nova-3
+ * loses tracking mid-utterance (background noise/music, cross-talk) and starts looping over a
+ * handful of short function words instead of transcribing real speech. Deliberate, meaningful
+ * repetition (e.g. "Holy, holy, holy is the Lord") stays well above the unique-word ratio threshold
+ * below and is intentionally left alone. Purely synchronous/local - no added latency.
+ */
+const MIN_WORDS_FOR_GARBLE_CHECK = 5;
+const GARBLE_MAX_UNIQUE_RATIO = 0.6;
+const GARBLE_MIN_WORD_FREQUENCY = 2;
+
+export function isInternallyGarbledSentence(text: string): boolean {
+  const words = (text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.,?!;:"']/g, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (words.length < MIN_WORDS_FOR_GARBLE_CHECK) return false;
+
+  const freq = new Map<string, number>();
+  for (const w of words) {
+    freq.set(w, (freq.get(w) || 0) + 1);
+  }
+
+  const uniqueCount = freq.size;
+  const uniqueRatio = uniqueCount / words.length;
+  const maxFrequency = Math.max(...freq.values());
+
+  return maxFrequency >= GARBLE_MIN_WORD_FREQUENCY && uniqueRatio <= GARBLE_MAX_UNIQUE_RATIO;
+}
+
 export type DuplicateDecision = 'append' | 'skip' | 'replace';
 
 /**

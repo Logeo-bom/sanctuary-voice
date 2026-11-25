@@ -4,6 +4,7 @@ import {
   isLikelyTtsEcho,
   isLowConfidenceSegment,
   isNearDuplicateFragment,
+  isInternallyGarbledSentence,
   sanitizeNova2Keywords,
   selectDeepgramModel,
 } from '../transcriptUtils';
@@ -118,5 +119,24 @@ describe('transcriptUtils', () => {
         'Amém.'
       )
     ).toBe(false);
+  });
+
+  it('detects internally scrambled word-salad garble within a single segment', () => {
+    expect(isInternallyGarbledSentence('a que a é razão a é é')).toBe(true);
+    expect(isInternallyGarbledSentence('O código código de dados dados de')).toBe(true);
+  });
+
+  it('does not flag deliberate, meaningful repetition as garble', () => {
+    expect(isInternallyGarbledSentence('Holy, holy, holy is the Lord God Almighty')).toBe(false);
+  });
+
+  it('does not flag a normal, varied sentence as garble', () => {
+    expect(
+      isInternallyGarbledSentence('A Bíblia nos ensina que somos libertos pela graça de Deus.')
+    ).toBe(false);
+  });
+
+  it('does not flag short segments at all, regardless of repetition', () => {
+    expect(isInternallyGarbledSentence('a a a a')).toBe(false);
   });
 });

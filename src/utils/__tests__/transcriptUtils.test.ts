@@ -124,6 +124,11 @@ describe('transcriptUtils', () => {
   it('detects internally scrambled word-salad garble within a single segment', () => {
     expect(isInternallyGarbledSentence('a que a é razão a é é')).toBe(true);
     expect(isInternallyGarbledSentence('O código código de dados dados de')).toBe(true);
+    expect(
+      isInternallyGarbledSentence(
+        'mga nag-aab sa mga nag-aab sa mga nag-aab sa mga nag-aab sa mga nag-aab'
+      )
+    ).toBe(true);
   });
 
   it('does not flag deliberate, meaningful repetition as garble', () => {

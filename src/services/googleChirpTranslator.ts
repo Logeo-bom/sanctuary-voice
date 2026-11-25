@@ -1,5 +1,10 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import { getChirpLanguageCode } from '../constants/chirpLanguages';
+import {
+  isLowConfidenceSegment,
+  isInternallyGarbledSentence,
+  isLikelyTtsEcho,
+} from '../utils/transcriptUtils';
 
 let chirpAccessCode: string | null = null;
 let chirpAccessCancelled = false;
@@ -81,6 +86,22 @@ export async function transcribeAndTranslateWithChirp(params: {
   const confidence = typeof sttData?.confidence === 'number' ? sttData.confidence : undefined;
 
   if (!transcript) {
+    return { utterances: [], latencyMs: Math.round(performance.now() - startTime) };
+  }
+
+  // 1. Confidence gate: drop low-confidence hallucinations (e.g. ambient noise misheard as words)
+  if (isLowConfidenceSegment(confidence)) {
+    return { utterances: [], latencyMs: Math.round(performance.now() - startTime) };
+  }
+
+  // 2. Garble & loop stutter filter: catch repetitive loops like "mga nag-aab sa mga nag-aab..."
+  if (isInternallyGarbledSentence(transcript) || isLikelyTtsEcho(transcript, [])) {
+    return { utterances: [], latencyMs: Math.round(performance.now() - startTime) };
+  }
+
+  // 3. Drop tiny 1-2 character non-words that produce garbage translations (e.g. "op" -> "operating room")
+  const cleanedAlphaWords = transcript.replace(/[.,?!;:\"']/g, '').trim().split(/\s+/).filter(Boolean);
+  if (cleanedAlphaWords.length === 1 && cleanedAlphaWords[0].length <= 2 && !/^\d+$/.test(cleanedAlphaWords[0])) {
     return { utterances: [], latencyMs: Math.round(performance.now() - startTime) };
   }
 

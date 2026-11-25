@@ -51,6 +51,7 @@ import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslato
 import { DeepgramLiveWebSocket, DEEPGRAM_TRANSIENT_SOCKET_ERROR } from './services/deepgramLiveWebSocket';
 import { transcribeAndTranslateWithChirp } from './services/googleChirpTranslator';
 import { isChirpOnlyLanguage } from './constants/chirpLanguages';
+import { isNearDuplicateFragment } from './utils/transcriptUtils';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { OfflineEdgeTranslator, preloadNllbModel } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
@@ -945,7 +946,7 @@ export function App() {
         latencyMs: params.latencyMs,
       };
 
-      // Global duplicate guard: prevent adding consecutive identical segments
+      // Global duplicate and near-duplicate guard: prevent adding consecutive identical segments
       const prevSegments = segmentsRef.current;
       const lastSegment = prevSegments.length > 0 ? prevSegments[prevSegments.length - 1] : null;
       if (lastSegment) {
@@ -953,6 +954,9 @@ export function App() {
         const normLast = lastSegment.originalText.trim().toLowerCase().replace(/^[.,?!;\s]+|[.,?!;\s]+$/g, '');
         const timeDiff = Date.now() - lastSegment.timestamp;
         if (normIncoming && normIncoming === normLast && timeDiff < 8000) {
+          return;
+        }
+        if (timeDiff < 6000 && isNearDuplicateFragment(normIncoming, normLast)) {
           return;
         }
       }

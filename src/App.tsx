@@ -88,6 +88,19 @@ const STORAGE_KEY_SOURCE_LANG = 'sanctuary_voice_source_lang_v1';
 const STORAGE_KEY_TARGET_LANG = 'sanctuary_voice_target_lang_v1';
 const STORAGE_KEY_CHURCH_GLOSSARY = 'sanctuary_voice_church_glossary_v1';
 
+// Shared mobile-device check: TAB/Online audio capture (`getDisplayMedia` with tab-audio sharing)
+// is a desktop-browser-only capability (Chrome/Edge/Brave) and additionally only ever works when
+// the sermon/video source and this app are open as two tabs in that *same* desktop browser — it
+// can never reach across to a different physical device. On mobile, the capture call always throws,
+// so the "TAB / Online (Desktop)" button is disabled up front instead of letting the operator tap
+// it, get an error banner, then have to switch to "Mic (Room)" manually (the previous behavior).
+function isMobileUserAgent(): boolean {
+  return (
+    typeof navigator !== 'undefined' &&
+    /Mobi|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '')
+  );
+}
+
 // Automatic connectivity-health probe (missionary/remote-venue design, replacing the old manual
 // "Offline Sanctuary Mode" toggle): `navigator.onLine` only reflects the OS's link-layer state, which
 // can be `true` even when the actual network is too slow/unstable for Deepgram's WebSocket or the
@@ -134,6 +147,10 @@ export function App() {
     if (typeof window === 'undefined') return null;
     return new URLSearchParams(window.location.search).get('obs');
   });
+
+  // Computed once per mount (user agent doesn't change mid-session) so the "TAB / Online (Desktop)"
+  // audio-source button can be disabled up front on phones/tablets instead of only failing after tap.
+  const [isMobileDevice] = useState<boolean>(() => isMobileUserAgent());
 
   const [speaker1SourceLang, setSpeaker1SourceLang] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEY_SOURCE_LANG) || 'auto';
@@ -1435,9 +1452,7 @@ export function App() {
       setIsListening(true);
     } catch (err) {
       recordCrash(err, 'toggleLiveMicrophone-start');
-      const isMobile =
-        typeof navigator !== 'undefined' &&
-        /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      const isMobile = isMobileUserAgent();
       const rawMsg = err instanceof Error ? err.message : '';
       const isPermissionDenied =
         rawMsg.toLowerCase().includes('permission denied') ||
@@ -2773,7 +2788,9 @@ export function App() {
 
               <button
                 type="button"
+                disabled={isMobileDevice}
                 onClick={() => {
+                  if (isMobileDevice) return;
                   if (isListening && audioConfig.audioSource !== 'tab') {
                     audioEngineRef.current?.stop();
                     setIsListening(false);
@@ -2781,12 +2798,18 @@ export function App() {
                   setAudioConfig((prev) => ({ ...prev, audioSource: 'tab' }));
                   setErrorNotice(null);
                 }}
-                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  audioConfig.audioSource === 'tab'
-                    ? 'bg-emerald-400 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                className={`px-3 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 transition ${
+                  isMobileDevice
+                    ? 'text-slate-600 cursor-not-allowed opacity-50'
+                    : audioConfig.audioSource === 'tab'
+                    ? 'bg-emerald-400 text-slate-950 shadow-sm cursor-pointer'
+                    : 'text-slate-400 hover:text-slate-200 cursor-pointer'
                 }`}
-                title="Capture browser tab audio directly (Desktop Chrome/Edge/Brave)"
+                title={
+                  isMobileDevice
+                    ? 'Desktop-only: requires a desktop browser (Chrome/Edge/Brave) with the sermon/video open as a tab in this same browser — use "Mic (Room)" on phones/tablets.'
+                    : 'Captures tab audio directly — only works if the sermon/video source is open as another tab in this same desktop browser (not a separate device).'
+                }
               >
                 <Tv className="w-3 h-3" />
                 TAB / Online (Desktop)

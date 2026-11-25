@@ -48,7 +48,7 @@ import { ChurchAudioEngine, preloadWhisperModel } from './services/churchAudioEn
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
-import { DeepgramLiveWebSocket } from './services/deepgramLiveWebSocket';
+import { DeepgramLiveWebSocket, DEEPGRAM_TRANSIENT_SOCKET_ERROR } from './services/deepgramLiveWebSocket';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { OfflineEdgeTranslator, preloadNllbModel } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
@@ -303,6 +303,9 @@ export function App() {
   const restQueueRef = useRef<Promise<void>>(Promise.resolve());
   const restPendingRef = useRef<number>(0);
   const lastWebSocketActivityRef = useRef<number>(0);
+  // Tracks the auto-expire timer for a transient Deepgram WebSocket error banner so it can be
+  // cancelled early if the connection self-heals (onReconnected) or a newer error replaces it.
+  const deepgramTransientErrorTimeoutRef = useRef<number | null>(null);
 
   const audioEngineRef = useRef<ChurchAudioEngine | null>(null);
   const speechEngineRef = useRef<EarphoneSpeechEngine | null>(null);
@@ -1262,6 +1265,10 @@ export function App() {
         setIsFinishingQueue(false);
       }, 3500);
 
+      if (deepgramTransientErrorTimeoutRef.current !== null) {
+        window.clearTimeout(deepgramTransientErrorTimeoutRef.current);
+        deepgramTransientErrorTimeoutRef.current = null;
+      }
       audioEngineRef.current?.stop();
       audioEngineRef.current = null;
       deepgramWsRef.current?.close();
@@ -1341,11 +1348,36 @@ export function App() {
             },
             (err) => {
               setErrorNotice(err);
+              // A raw browser WebSocket `onerror` carries no diagnostic detail and the auto-reconnect
+              // logic may already be healing the connection in the background (e.g. a brief network
+              // blip or the short-lived token expiring mid-handshake). Rather than leaving this as a
+              // persistent banner the operator must manually dismiss/act on, auto-clear this specific
+              // transient message after a short delay if nothing worse has replaced it - the
+              // `onReconnected` callback below will also clear it immediately on successful recovery.
+              if (err === DEEPGRAM_TRANSIENT_SOCKET_ERROR) {
+                if (deepgramTransientErrorTimeoutRef.current !== null) {
+                  window.clearTimeout(deepgramTransientErrorTimeoutRef.current);
+                }
+                deepgramTransientErrorTimeoutRef.current = window.setTimeout(() => {
+                  setErrorNotice((current) => (current === DEEPGRAM_TRANSIENT_SOCKET_ERROR ? null : current));
+                  deepgramTransientErrorTimeoutRef.current = null;
+                }, 9000);
+              }
             },
             (interim) => {
               setLiveInterimText(interim);
             },
-            customChurchGlossaryRef.current
+            customChurchGlossaryRef.current,
+            () => {
+              // Fired once the WebSocket auto-reconnects successfully. Immediately dismiss the
+              // transient error banner (and cancel its auto-expire timer) instead of leaving a stale
+              // "connection failed" message visible after the connection has already self-healed.
+              if (deepgramTransientErrorTimeoutRef.current !== null) {
+                window.clearTimeout(deepgramTransientErrorTimeoutRef.current);
+                deepgramTransientErrorTimeoutRef.current = null;
+              }
+              setErrorNotice((current) => (current === DEEPGRAM_TRANSIENT_SOCKET_ERROR ? null : current));
+            }
           );
 
           await wsClient.connect();

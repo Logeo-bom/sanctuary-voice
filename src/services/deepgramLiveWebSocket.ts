@@ -35,6 +35,13 @@ export type OnInterimCallback = (interimText: string) => void;
 export type OnErrorCallback = (err: string) => void;
 export type OnStatusChangeCallback = (status: DeepgramConnectionStatus) => void;
 
+// Shared message for a one-off socket error (a browser WebSocket `onerror` gives no diagnostic
+// detail, so this is deliberately generic). Exported so callers (e.g. App.tsx) can recognize this
+// specific transient message to auto-dismiss it once the connection self-heals, instead of leaving
+// it as a persistent banner demanding a manual click for a problem that may already be resolved.
+export const DEEPGRAM_TRANSIENT_SOCKET_ERROR =
+  'Deepgram WebSocket connection failed. Please check your API key or connection.';
+
 export class DeepgramLiveWebSocket {
   private socket: WebSocket | null = null;
   private apiKey: string;
@@ -223,7 +230,7 @@ export class DeepgramLiveWebSocket {
 
         this.socket.onerror = (e) => {
           console.error('[DeepgramLiveWebSocket] Socket error event:', e);
-          this.onError('Deepgram WebSocket connection failed. Please check your API key or connection.');
+          this.onError(DEEPGRAM_TRANSIENT_SOCKET_ERROR);
           reject(new Error('WebSocket connection error'));
         };
 

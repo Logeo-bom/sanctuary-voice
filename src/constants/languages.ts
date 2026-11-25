@@ -241,6 +241,16 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     flag: '🇮🇱',
     dialectExamples: ['Modern Israeli', 'Biblical Hebrew liturgical'],
   },
+  {
+    // Not supported by Deepgram Nova-3/Nova-2 (no Cebuano/Bisaya acoustic model) — routed through
+    // the Google Cloud Chirp 2 provider instead (see `src/constants/chirpLanguages.ts`).
+    code: 'ceb',
+    bcp47: 'ceb-PH',
+    name: 'Cebuano / Bisaya',
+    nativeName: 'Binisaya',
+    flag: '🇵🇭',
+    dialectExamples: ['Cebu City Standard', 'Davao Bisaya', 'Boholano'],
+  },
 ];
 
 export const SPEAKER_PALETTE = [

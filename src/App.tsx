@@ -49,6 +49,8 @@ import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
 import { DeepgramLiveWebSocket, DEEPGRAM_TRANSIENT_SOCKET_ERROR } from './services/deepgramLiveWebSocket';
+import { transcribeAndTranslateWithChirp } from './services/googleChirpTranslator';
+import { isChirpOnlyLanguage } from './constants/chirpLanguages';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
 import { OfflineEdgeTranslator, preloadNllbModel } from './services/offlineEdgeTranslator';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
@@ -576,11 +578,12 @@ export function App() {
   useEffect(() => {
     if (!isOnline) return;
     const idleHandle = window.setTimeout(() => {
-      preloadWhisperModel();
+      preloadWhisperModel(speaker1LangRef.current);
       preloadNllbModel();
     }, 1500);
     return () => window.clearTimeout(idleHandle);
-  }, [isOnline]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, speaker1SourceLang]);
 
   // Continuous connectivity-health probe (replaces the old manual "Offline Sanctuary Mode" toggle).
   // While a service is live, periodically verifies the cloud pipeline is actually reachable (not just
@@ -663,6 +666,7 @@ export function App() {
     setSpeaker1SourceLang(newLangCode);
     localStorage.setItem(STORAGE_KEY_SOURCE_LANG, newLangCode);
     speaker1LangRef.current = newLangCode;
+    audioEngineRef.current?.setSourceLanguageHint(newLangCode);
 
     // If live WebSocket is running, seamlessly reconnect with the new language (raw PCM needs no mic restart)
     if (deepgramWsRef.current && isListening) {
@@ -1014,6 +1018,57 @@ export function App() {
       if (isWsActivelyProducing) {
         return;
       }
+
+      // Chirp 2 routing: some source languages (e.g. Cebuano/Bisaya) have no Deepgram acoustic model
+      // at all, so they're always routed through Google Cloud Chirp 2 instead, regardless of the
+      // Deepgram/Gemini `aiProvider` toggle - see `src/constants/chirpLanguages.ts`.
+      if (isChirpOnlyLanguage(speaker1LangRef.current)) {
+        setIsProcessingChunk(true);
+        try {
+          const chirpResult = await transcribeAndTranslateWithChirp({
+            audioBlob,
+            mimeType,
+            sourceLanguageCode: speaker1LangRef.current,
+            targetLanguageCode: targetLangRef.current,
+          });
+
+          if (chirpResult.utterances.length > 0) {
+            setWallet((prev) => {
+              const addedSec = Math.round(durationMs / 1000);
+              const totalSec = prev.sessionSecondsUsed + addedSec;
+              return {
+                ...prev,
+                sessionSecondsUsed: totalSec,
+                minutesRemaining: Math.max(0, prev.totalMinutesPurchased - Math.floor(totalSec / 60)),
+              };
+            });
+
+            for (const utt of chirpResult.utterances) {
+              upsertSpeakerAndAppendSegment({
+                speakerId: utt.speakerId,
+                speakerLabel: utt.speakerLabel,
+                roleHint: 'main-speaker',
+                sourceLanguageCode: utt.sourceLanguageCode,
+                sourceLanguageName: utt.sourceLanguageName,
+                originalText: utt.originalText,
+                translatedText: utt.translatedText,
+                latencyMs: chirpResult.latencyMs,
+              });
+            }
+          }
+          consecutiveFailuresRef.current = 0;
+          setErrorNotice(null);
+        } catch (chirpErr) {
+          const chirpErrorMsg = chirpErr instanceof Error ? chirpErr.message : 'Chirp 2 request failed';
+          console.warn('[Chirp 2 Chunk Error]:', chirpErrorMsg);
+          consecutiveFailuresRef.current += 1;
+          setErrorNotice(chirpErrorMsg);
+        } finally {
+          setIsProcessingChunk(false);
+        }
+        return;
+      }
+
       // 1. Process with Deepgram Nova-2 as Primary (Serverless backend proxy or client key)
       if (activeProvider === 'deepgram') {
         setIsProcessingChunk(true);
@@ -1342,8 +1397,11 @@ export function App() {
         return;
       }
 
-      // If Deepgram is selected, connect direct low-latency WebSocket (using serverless token or stored key)
-      if (aiProviderRef.current === 'deepgram') {
+      // If Deepgram is selected, connect direct low-latency WebSocket (using serverless token or stored key).
+      // Skipped entirely for Chirp-only languages (e.g. Cebuano/Bisaya) - Deepgram has no acoustic model
+      // for them at all, so attempting the WebSocket would just fail; `processAudioChunk` routes those
+      // languages through Chirp 2's REST pipeline instead (see `isChirpOnlyLanguage`).
+      if (aiProviderRef.current === 'deepgram' && !isChirpOnlyLanguage(speaker1LangRef.current)) {
         try {
           const wsClient = new DeepgramLiveWebSocket(
             deepgramKeyRef.current || '',
@@ -1446,6 +1504,7 @@ export function App() {
           });
         }
       );
+      engine.setSourceLanguageHint(speaker1LangRef.current);
       await engine.start(audioConfig.audioSource || 'mic');
       audioEngineRef.current = engine;
 

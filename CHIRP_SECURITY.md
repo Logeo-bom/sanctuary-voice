@@ -1,0 +1,7 @@
+# Chirp access setup
+
+The Chirp endpoint is disabled until `CHIRP_OPERATOR_ACCESS_CODE` is set on the server. Generate a random code, for example `openssl rand -hex 32`, and set it as a sensitive Vercel environment variable. Do not put it in client build variables, source code, or chat. Operators enter this separate code when prompted; it is retained only in page memory. Reload to retry after cancellation. Rotate it in Vercel and redeploy if exposed.
+
+Use a separate Google service-account credential in `GOOGLE_CHIRP_SERVICE_ACCOUNT_KEY`, limited to Speech recognition. The operator code is not the Google credential. Deploy the protected code before enabling the Google credential, and test with a short recording. Use HTTPS.
+
+This shared access code is an interim safeguard, not user accounts or an abuse-proof quota. Anyone with the code can make billable requests; it cannot provide per-user revocation. Configure Vercel Firewall rate limits for `/api/chirp-transcribe`, restrictive Google Cloud quotas and billing alerts before enabling production billing. Billing alerts are not spending caps. Other API endpoints require separate security review. Verify the protection against the deployed URL before use.

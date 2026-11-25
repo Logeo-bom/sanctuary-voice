@@ -23,15 +23,43 @@ type WhisperTranscriber = (
   options?: Record<string, unknown>
 ) => Promise<WhisperTranscriptionResult | WhisperTranscriptionResult[]>;
 
-// Module-level (not instance-bound) singleton so the on-device Whisper model can be eagerly
-// pre-cached (see `preloadWhisperModel` below) as soon as the app has any connectivity at all,
-// instead of only being fetched reactively the first time a `ChurchAudioEngine` instance actually
-// needs it mid-outage. Once loaded, the browser's HTTP cache keeps it available fully offline.
-let whisperPipelinePromise: Promise<WhisperTranscriber> | null = null;
+// Module-level (not instance-bound) cache, keyed by model id, so the on-device Whisper model can be
+// eagerly pre-cached (see `preloadWhisperModel` below) as soon as the app has any connectivity at
+// all, instead of only being fetched reactively the first time a `ChurchAudioEngine` instance
+// actually needs it mid-outage. Once loaded, the browser's HTTP cache keeps it available fully
+// offline. Keyed by model id (not a single shared promise) because different source languages use
+// different checkpoints - see `getWhisperModelIdForLanguage` below.
+const whisperPipelinePromises = new Map<string, Promise<WhisperTranscriber>>();
 
-async function getWhisperPipeline(): Promise<WhisperTranscriber> {
-  if (!whisperPipelinePromise) {
-    whisperPipelinePromise = (async () => {
+const DEFAULT_WHISPER_MODEL_ID = 'Xenova/whisper-tiny';
+
+// Filipino/Visayan languages (Tagalog, Cebuano/Bisaya, and similar under-resourced regional
+// languages) are weak on `whisper-tiny`, which was trained predominantly on high-resource
+// languages. No verified, transformers.js-ready (ONNX-converted) Cebuano-specific fine-tune exists
+// publicly yet - the only community fine-tune found (`pengyizhou/whisper-fleurs-ceb_ph-small-...`)
+// is a raw PyTorch checkpoint trained on ~2.5 hours of audio, not ONNX-converted, so loading it
+// directly here would just fail at runtime. Until a verified ONNX checkpoint exists, `whisper-small`
+// is a real, already Xenova-hosted/ONNX-converted upgrade: a larger multilingual model with
+// meaningfully better low-resource-language coverage than `whisper-tiny`, at the cost of a bigger
+// download. This map is intentionally easy to extend/swap once a dedicated Cebuano ONNX checkpoint
+// becomes available - just change the model id string here, no other code needs to change.
+const FILIPINO_VISAYAN_LANGS = new Set(['tl', 'ceb']);
+const FILIPINO_VISAYAN_WHISPER_MODEL_ID = 'Xenova/whisper-small';
+
+/**
+ * Selects the on-device Whisper checkpoint to use for a given source language. Exported for
+ * testing; see the comment above `FILIPINO_VISAYAN_WHISPER_MODEL_ID` for why this currently maps
+ * to a larger generic multilingual model rather than a dedicated Cebuano fine-tune.
+ */
+export function getWhisperModelIdForLanguage(sourceLang: string): string {
+  const baseCode = (sourceLang || '').toLowerCase().trim().split('-')[0];
+  return FILIPINO_VISAYAN_LANGS.has(baseCode) ? FILIPINO_VISAYAN_WHISPER_MODEL_ID : DEFAULT_WHISPER_MODEL_ID;
+}
+
+async function getWhisperPipeline(modelId: string = DEFAULT_WHISPER_MODEL_ID): Promise<WhisperTranscriber> {
+  let pipelinePromise = whisperPipelinePromises.get(modelId);
+  if (!pipelinePromise) {
+    pipelinePromise = (async () => {
       // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
       // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
       const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
@@ -40,22 +68,26 @@ async function getWhisperPipeline(): Promise<WhisperTranscriber> {
       transformers.env.allowLocalModels = false;
       return (await transformers.pipeline(
         'automatic-speech-recognition',
-        'Xenova/whisper-tiny',
+        modelId,
         { quantized: true }
       )) as WhisperTranscriber;
     })();
+    whisperPipelinePromises.set(modelId, pipelinePromise);
   }
-  return whisperPipelinePromise;
+  return pipelinePromise;
 }
 
 /**
  * Eagerly downloads and caches the on-device Whisper model ahead of time (missionary/remote-venue
  * use case: by the time the device actually loses connectivity in the field, the model is already
  * warm, so the offline fallback doesn't itself require a network call). Safe to call repeatedly —
- * it's a no-op once the model is loaded or already loading. Never throws.
+ * it's a no-op once the model is loaded or already loading. Never throws. Pass the currently
+ * selected source language so the correct checkpoint (see `getWhisperModelIdForLanguage`) is
+ * pre-cached instead of always just the default.
  */
-export function preloadWhisperModel(): void {
-  void getWhisperPipeline().catch((err) => {
+export function preloadWhisperModel(sourceLang?: string): void {
+  const modelId = getWhisperModelIdForLanguage(sourceLang || '');
+  void getWhisperPipeline(modelId).catch((err) => {
     console.warn('[ChurchAudioEngine] Eager Whisper model pre-cache failed (will retry on demand):', err);
   });
 }
@@ -91,6 +123,9 @@ export class ChurchAudioEngine {
   // keeps adapting continuously (not just once at service start) to "online but unusable" networks
   // that `navigator.onLine` alone can't detect (missionary/remote-venue use case).
   private forceOffline = false;
+  // Currently selected source language, used only to pick the right on-device Whisper checkpoint
+  // for the offline fallback (see `getWhisperModelIdForLanguage`/`setSourceLanguageHint`).
+  private sourceLanguageHint = '';
 
   constructor(
     config: AudioProcessingConfig,
@@ -114,6 +149,15 @@ export class ChurchAudioEngine {
    */
   public setForceOffline(enabled: boolean): void {
     this.forceOffline = enabled;
+  }
+
+  /**
+   * Updates the source-language hint used to select the on-device Whisper checkpoint for the
+   * offline fallback (see `getWhisperModelIdForLanguage`). Call whenever the operator changes the
+   * source language, so the correct model is already warm by the time the offline path engages.
+   */
+  public setSourceLanguageHint(sourceLang: string): void {
+    this.sourceLanguageHint = sourceLang || '';
   }
 
   public static async listAudioInputDevices(): Promise<MediaDeviceInfo[]> {
@@ -551,7 +595,8 @@ export class ChurchAudioEngine {
     sampleRate: number = TARGET_SAMPLE_RATE
   ): Promise<string> {
     try {
-      const transcriber = await getWhisperPipeline();
+      const modelId = getWhisperModelIdForLanguage(this.sourceLanguageHint);
+      const transcriber = await getWhisperPipeline(modelId);
       const result = await transcriber(samples, {
         sampling_rate: sampleRate,
         chunk_length_s: 8,

@@ -441,6 +441,11 @@ export function App() {
           } else if (isFocusModeRef.current) {
             setIsFocusMode(false);
           } else if (isListeningRef.current) {
+            listeningSessionIdRef.current += 1;
+            isListeningRef.current = false;
+            restQueueRef.current = Promise.resolve();
+            restPendingRef.current = 0;
+            setIsProcessingChunk(false);
             audioEngineRef.current?.stop();
             audioEngineRef.current = null;
             deepgramWsRef.current?.close();
@@ -1032,6 +1037,7 @@ export function App() {
             targetLanguageCode: targetLangRef.current,
           });
 
+          if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) return;
           if (chirpResult.utterances.length > 0) {
             setWallet((prev) => {
               const addedSec = Math.round(durationMs / 1000);
@@ -1059,12 +1065,15 @@ export function App() {
           consecutiveFailuresRef.current = 0;
           setErrorNotice(null);
         } catch (chirpErr) {
+          if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) return;
           const chirpErrorMsg = chirpErr instanceof Error ? chirpErr.message : 'Chirp 2 request failed';
           console.warn('[Chirp 2 Chunk Error]:', chirpErrorMsg);
           consecutiveFailuresRef.current += 1;
           setErrorNotice(chirpErrorMsg);
         } finally {
-          setIsProcessingChunk(false);
+          if (sessionId === listeningSessionIdRef.current && isListeningRef.current) {
+            setIsProcessingChunk(false);
+          }
         }
         return;
       }
@@ -1314,7 +1323,9 @@ export function App() {
         .then(() => processAudioChunk(audioBlob, mimeType, durationMs, sessionId))
         .catch(() => {})
         .finally(() => {
-          restPendingRef.current = Math.max(0, restPendingRef.current - 1);
+          if (sessionId === listeningSessionIdRef.current) {
+            restPendingRef.current = Math.max(0, restPendingRef.current - 1);
+          }
         });
     },
     [processAudioChunk]
@@ -1328,6 +1339,7 @@ export function App() {
       recentSpokenRef.current = [];
       restQueueRef.current = Promise.resolve();
       restPendingRef.current = 0;
+      setIsProcessingChunk(false);
       // Signal user that any final audio chunk in flight is finishing cleanly
       setIsFinishingQueue(true);
       if (finishingQueueTimerRef.current !== null) {

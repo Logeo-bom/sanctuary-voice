@@ -100,8 +100,8 @@ export function findSilenceCutIndex(
   samples: Float32Array,
   minSamples: number,
   maxSamples: number,
-  windowSamples = 4800,
-  threshold = 0.004
+  windowSamples = 3200,
+  threshold = 0.005
 ): number | null {
   if (minSamples <= 0 || samples.length < minSamples) {
     return null;

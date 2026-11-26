@@ -536,12 +536,12 @@ export class ChurchAudioEngine {
       this.onStreamingSlice(pcm16.buffer as ArrayBuffer);
     }
 
-    // 3. Accumulate 16kHz samples and cut at natural speech pauses (2.5s min, 8s max, zero overlap)
+    // 3. Accumulate 16kHz samples and cut at natural speech pauses (2.2s min, 6.0s max, zero overlap)
     this.pcm16kChunks.push(downsampled16k);
     this.pcm16kSampleCount += downsampled16k.length;
 
-    const minSamples = Math.round(2.5 * TARGET_SAMPLE_RATE);
-    const maxSamples = Math.round(8 * TARGET_SAMPLE_RATE);
+    const minSamples = Math.round(2.2 * TARGET_SAMPLE_RATE);
+    const maxSamples = Math.round(6.0 * TARGET_SAMPLE_RATE);
 
     if (this.pcm16kSampleCount >= minSamples) {
       const merged = new Float32Array(this.pcm16kSampleCount);

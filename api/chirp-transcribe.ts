@@ -43,7 +43,9 @@ const DEFAULT_CEBUANO_CHURCH_TERMS = [
   'pagtuo', 'pag-ampo', 'pangadye', 'pagsimba', 'simbahan', 'Ginoo',
   'Dios', 'Jesus', 'Jesukristo', 'Balaang Espiritu', 'ebanghelyo',
   'kaluwasan', 'kalooy', 'grasya', 'paghinulsol', 'bunyag', 'pastor',
-  'kongregasyon', 'tambuanan sa langit', 'mga butyag',
+  'kongregasyon', 'tambuanan sa langit', 'mga butyag', 'buhaton ta kini',
+  'aron pagahatagan', 'sekreto kini sa panalangin', 'maabli ang tambuanan',
+  'kabubut-on', 'himaya', 'pagdayeg', 'pasalamat', 'pulong sa Dios',
 ];
 
 // Google's Speech Adaptation `phraseSets` has documented limits on phrase count/length per request;

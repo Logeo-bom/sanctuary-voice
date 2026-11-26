@@ -1038,12 +1038,19 @@ export function App() {
       if (isChirpOnlyLanguage(speaker1LangRef.current)) {
         setIsProcessingChunk(true);
         try {
+          const recentOriginalContext = segmentsRef.current
+            .slice(-2)
+            .map((s) => s.originalText)
+            .join(' ')
+            .trim();
+
           const chirpResult = await transcribeAndTranslateWithChirp({
             audioBlob,
             mimeType,
             sourceLanguageCode: speaker1LangRef.current,
             targetLanguageCode: targetLangRef.current,
             glossaryTerms: customChurchGlossaryRef.current,
+            recentContext: recentOriginalContext || undefined,
           });
 
           if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) return;

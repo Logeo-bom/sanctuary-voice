@@ -57,6 +57,7 @@ export async function transcribeAndTranslateWithChirp(params: {
   speakerId?: string;
   speakerLabel?: string;
   glossaryTerms?: string[];
+  recentContext?: string;
 }): Promise<ChirpTranslationResult> {
   const startTime = performance.now();
   if (chirpAccessCancelled) throw new Error('Chirp access cancelled. Reload to try again.');
@@ -121,6 +122,7 @@ export async function transcribeAndTranslateWithChirp(params: {
         text: transcript,
         sl: params.sourceLanguageCode,
         tl: params.targetLanguageCode,
+        ...(params.recentContext ? { context: params.recentContext } : {}),
       }),
     });
     if (translateRes.ok) {

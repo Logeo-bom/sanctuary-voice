@@ -1,6 +1,18 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
-import { isLowConfidenceSegment } from '../src/utils/transcriptUtils';
+
+// NOTE: deliberately NOT importing from `../src/...` here. Vercel's serverless function bundler
+// (`@vercel/nft`) traces each `api/*.ts` file independently, and a cross-folder import reaching
+// into `src/` is not guaranteed to be included in the deployed function bundle - this previously
+// caused a `FUNCTION_INVOCATION_FAILED` crash in production (module-not-found at runtime) even
+// though local `tsc`/`vitest`/`vite build` all passed. This small, pure confidence-gate helper is
+// duplicated inline instead, mirroring the one in `src/utils/transcriptUtils.ts`.
+const MIN_SEGMENT_CONFIDENCE = 0.35;
+
+function isLowConfidenceSegment(avgConfidence: number | undefined, threshold = MIN_SEGMENT_CONFIDENCE): boolean {
+  if (avgConfidence === undefined || Number.isNaN(avgConfidence)) return false;
+  return avgConfidence < threshold;
+}
 
 // Google Cloud Speech-to-Text v2 "Chirp 2" integration. Unlike Deepgram/Gemini (already wired into
 // this app), Chirp 2 officially supports Cebuano/Bisaya (`ceb-PH`) and 100+ other languages,

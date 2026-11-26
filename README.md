@@ -133,6 +133,21 @@ npx.cmd cap sync android
 npx.cmd cap open android
 ```
 
+### Android SDK Setup (fixing "SDK location not found")
+
+The `android/` Gradle project needs a local Android SDK — this isn't committed to git since the path differs per machine. If a build fails with an SDK-location error:
+
+1. Install the SDK, either via **Android Studio** (SDK Manager → install Platform `android-36` and Build-Tools `36.0.0`), or via the standalone [command-line tools](https://developer.android.com/studio#command-tools) + `sdkmanager`:
+   ```bash
+   sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+   ```
+2. Create `android/local.properties` (gitignored) pointing at your SDK install:
+   ```
+   sdk.dir=/absolute/path/to/your/Android/sdk
+   ```
+   (or export `ANDROID_HOME`/`ANDROID_SDK_ROOT` as an environment variable instead).
+3. Verify with `cd android && ./gradlew assembleDebug`.
+
 ---
 
 ## 🌐 Live Deployment

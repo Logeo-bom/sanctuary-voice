@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
+import { isLowConfidenceSegment } from '../src/utils/transcriptUtils';
 
 // Google Cloud Speech-to-Text v2 "Chirp 2" integration. Unlike Deepgram/Gemini (already wired into
 // this app), Chirp 2 officially supports Cebuano/Bisaya (`ceb-PH`) and 100+ other languages,
@@ -17,6 +18,21 @@ interface GoogleServiceAccountKey {
   client_email: string;
   private_key: string;
   project_id: string;
+}
+
+export function selectChirpTranscript(results: Array<{
+  alternatives?: Array<{ transcript?: string; confidence?: number }>;
+}>): { transcript: string; confidence: number | undefined } {
+  const accepted = results
+    .map((result) => result?.alternatives?.[0])
+    .filter((alternative): alternative is { transcript?: string; confidence?: number } =>
+      !!alternative?.transcript?.trim() && !isLowConfidenceSegment(alternative.confidence));
+  const transcript = accepted.map((alternative) => alternative.transcript!.trim()).join(' ');
+  const confidence = accepted.length > 0 && accepted.every((alternative) =>
+    typeof alternative.confidence === 'number' && Number.isFinite(alternative.confidence))
+    ? Math.min(...accepted.map((alternative) => alternative.confidence!))
+    : undefined;
+  return { transcript, confidence };
 }
 
 function base64url(input: Buffer | string): string {
@@ -146,12 +162,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = await sttRes.json();
     const results = Array.isArray(data?.results) ? data.results : [];
-    const transcript = results
-      .map((r: { alternatives?: { transcript?: string }[] }) => r?.alternatives?.[0]?.transcript || '')
-      .filter(Boolean)
-      .join(' ')
-      .trim();
-    const confidence = results?.[0]?.alternatives?.[0]?.confidence;
+    const { transcript, confidence } = selectChirpTranscript(results);
 
     return res.status(200).json({
       transcript,

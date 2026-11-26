@@ -32,6 +32,44 @@ interface GoogleServiceAccountKey {
   project_id: string;
 }
 
+// Default Cebuano/Bisaya theological & church vocabulary seed list, used to bias Chirp 2's
+// recognition via Speech Adaptation (`adaptation.phraseSets`) toward these terms instead of more
+// statistically common Tagalog/English-sounding alternatives (e.g. "ikanapulog" (tithes) mis-heard
+// as "ika-10 palapag" (10th floor)). Kept inline (not imported from `src/`) for the same bundling
+// reason as `isLowConfidenceSegment` above.
+const DEFAULT_CEBUANO_CHURCH_TERMS = [
+  'ikanapulo', 'ikanapulog', 'paghatag', 'hatag', 'halad', 'mga halad',
+  'panalangin', 'pagpanalangin', 'magmatinud-anon', 'matinud-anon',
+  'pagtuo', 'pag-ampo', 'pangadye', 'pagsimba', 'simbahan', 'Ginoo',
+  'Dios', 'Jesus', 'Jesukristo', 'Balaang Espiritu', 'ebanghelyo',
+  'kaluwasan', 'kalooy', 'grasya', 'paghinulsol', 'bunyag', 'pastor',
+  'kongregasyon', 'tambuanan sa langit', 'mga butyag',
+];
+
+// Google's Speech Adaptation `phraseSets` has documented limits on phrase count/length per request;
+// keep the merged list comfortably under those so a bloated operator glossary can never cause the
+// whole recognize request to be rejected.
+const MAX_ADAPTATION_PHRASES = 100;
+const MAX_PHRASE_LENGTH = 100;
+const ADAPTATION_BOOST = 10;
+
+export function buildAdaptationPhrases(glossaryTerms?: string[]): string[] {
+  const merged = [...DEFAULT_CEBUANO_CHURCH_TERMS, ...(Array.isArray(glossaryTerms) ? glossaryTerms : [])];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of merged) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim().slice(0, MAX_PHRASE_LENGTH);
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+    if (result.length >= MAX_ADAPTATION_PHRASES) break;
+  }
+  return result;
+}
+
 export function selectChirpTranscript(results: Array<{
   alternatives?: Array<{ transcript?: string; confidence?: number }>;
 }>): { transcript: string; confidence: number | undefined } {
@@ -128,6 +166,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const audioBase64 = req.body?.audioBase64;
     const languageCode = req.body?.languageCode || 'ceb-PH';
     const location = process.env.GOOGLE_CHIRP_LOCATION || 'us-central1';
+    const glossaryTerms = Array.isArray(req.body?.glossaryTerms)
+      ? (req.body.glossaryTerms as unknown[]).filter((t): t is string => typeof t === 'string')
+      : undefined;
 
     if (typeof audioBase64 !== 'string' || !audioBase64 || audioBase64.length > 1500000 ||
         audioBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(audioBase64)) {
@@ -150,22 +191,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const recognizeUrl = `https://${location}-speech.googleapis.com/v2/projects/${projectId}/locations/${location}/recognizers/_:recognize`;
 
-    const sttRes = await fetch(recognizeUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const adaptationPhrases = buildAdaptationPhrases(glossaryTerms);
+
+    function buildRecognizeConfig(withAdaptation: boolean) {
+      return {
         config: {
           autoDecodingConfig: {},
           languageCodes: [languageCode],
           model: 'chirp_2',
           features: { enableAutomaticPunctuation: true },
+          ...(withAdaptation && adaptationPhrases.length > 0
+            ? {
+                adaptation: {
+                  phraseSets: [{
+                    phrases: adaptationPhrases.map((value) => ({ value, boost: ADAPTATION_BOOST })),
+                  }],
+                },
+              }
+            : {}),
         },
         content: audioBase64,
-      }),
+      };
+    }
+
+    let sttRes = await fetch(recognizeUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildRecognizeConfig(true)),
     });
+
+    // Fail-open: if Google rejects the request specifically because of the adaptation config (e.g.
+    // size/format limits exceeded), retry once without it rather than failing the whole transcription.
+    if (!sttRes.ok && sttRes.status >= 400 && sttRes.status < 500 && adaptationPhrases.length > 0) {
+      const firstErrText = await sttRes.text();
+      if (/adaptation|phrase/i.test(firstErrText)) {
+        sttRes = await fetch(recognizeUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(buildRecognizeConfig(false)),
+        });
+      } else if (!sttRes.ok) {
+        return res.status(sttRes.status).json({ error: `Chirp 2 request failed: ${firstErrText.slice(0, 300)}` });
+      }
+    }
 
     if (!sttRes.ok) {
       const errText = await sttRes.text();

@@ -294,6 +294,9 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           <p className="text-[11px] text-slate-400 leading-tight">
             Add pastor names, missionary ministries, or theological terms (e.g. <em>Pastor David, Melchizedek, Golgotha</em>). Deepgram prioritizes these words with 100% accuracy.
           </p>
+          <p className="text-[11px] text-slate-400 leading-tight">
+            These terms also bias Cebuano/Bisaya (Chirp) recognition toward your church's vocabulary, not just the main Deepgram pipeline.
+          </p>
 
           <form onSubmit={handleAddTerm} className="flex gap-2">
             <input

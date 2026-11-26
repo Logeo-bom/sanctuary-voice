@@ -56,6 +56,7 @@ export async function transcribeAndTranslateWithChirp(params: {
   targetLanguageCode: string;
   speakerId?: string;
   speakerLabel?: string;
+  glossaryTerms?: string[];
 }): Promise<ChirpTranslationResult> {
   const startTime = performance.now();
   if (chirpAccessCancelled) throw new Error('Chirp access cancelled. Reload to try again.');
@@ -72,7 +73,11 @@ export async function transcribeAndTranslateWithChirp(params: {
   const sttRes = await fetch('/api/chirp-transcribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${chirpAccessCode}` },
-    body: JSON.stringify({ audioBase64: base64Audio, languageCode: chirpLanguageCode }),
+    body: JSON.stringify({
+      audioBase64: base64Audio,
+      languageCode: chirpLanguageCode,
+      glossaryTerms: params.glossaryTerms,
+    }),
   });
 
   if (!sttRes.ok) {

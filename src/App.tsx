@@ -1043,6 +1043,7 @@ export function App() {
             mimeType,
             sourceLanguageCode: speaker1LangRef.current,
             targetLanguageCode: targetLangRef.current,
+            glossaryTerms: customChurchGlossaryRef.current,
           });
 
           if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) return;

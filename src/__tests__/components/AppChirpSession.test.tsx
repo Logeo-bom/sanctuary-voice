@@ -6,6 +6,7 @@ import type { ChirpTranslationResult } from '../../services/googleChirpTranslato
 const mocks = vi.hoisted(() => ({
   chunks: [] as Array<(blob: Blob, mime: string, duration: number) => void>,
   chirp: vi.fn(),
+  stop: vi.fn(),
 }));
 
 vi.mock('../../services/googleChirpTranslator', () => ({
@@ -20,7 +21,7 @@ vi.mock('../../services/churchAudioEngine', () => ({
     setSourceLanguageHint() {}
     setForceOffline() {}
     async start() {}
-    stop() {}
+    stop() { mocks.stop(); }
   },
   preloadWhisperModel: vi.fn(),
 }));
@@ -62,6 +63,7 @@ describe('App Chirp session boundaries', () => {
     localStorage.setItem('sanctuary_voice_source_lang_v1', 'ceb');
     mocks.chunks.length = 0;
     mocks.chirp.mockReset();
+    mocks.stop.mockReset();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
@@ -82,6 +84,24 @@ describe('App Chirp session boundaries', () => {
     await emitChunk(0);
     await act(async () => { request.resolve(result); await request.promise; });
     expect(await screen.findByText('Old session caption')).toBeInTheDocument();
+  });
+
+  it('keeps the microphone running when spoken audio is toggled and stops it on unmount', async () => {
+    const request = deferred<ChirpTranslationResult>();
+    mocks.chirp.mockReturnValueOnce(request.promise);
+    const { unmount } = render(<App />);
+    await toggle('Tap to Listen');
+    await screen.findByText('Tap to Stop Mic');
+    fireEvent.click(screen.getByText('Audio ON').closest('button')!);
+    expect(screen.getByText('Text Only')).toBeInTheDocument();
+    expect(mocks.stop).not.toHaveBeenCalled();
+    await emitChunk(0);
+    await act(async () => { request.resolve(result); await request.promise; });
+    expect(await screen.findByText('Old session caption')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Text Only').closest('button')!);
+    expect(mocks.stop).not.toHaveBeenCalled();
+    unmount();
+    expect(mocks.stop).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -510,13 +510,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    speechEngineRef.current = new EarphoneSpeechEngine(speechConfig);
+    const speechEngine = new EarphoneSpeechEngine(speechConfig);
+    speechEngineRef.current = speechEngine;
     return () => {
-      speechEngineRef.current?.stopAll();
-      audioEngineRef.current?.stop();
-      fallbackEngineRef.current?.stop();
+      speechEngine.stopAll();
     };
   }, [speechConfig]);
+
+  useEffect(() => () => {
+    audioEngineRef.current?.stop();
+    fallbackEngineRef.current?.stop();
+  }, []);
 
   useEffect(() => {
     fallbackEngineRef.current?.setLanguages(speaker1SourceLang, targetLangCode);

@@ -8,12 +8,18 @@ import {
   setChirpAccessCode,
 } from '../services/googleChirpTranslator';
 
-const CodeForm: React.FC<{ onSaved: () => void; autoFocus?: boolean }> = ({ onSaved, autoFocus }) => {
+const CodeForm: React.FC<{
+  onSaved: () => void;
+  onCancel?: () => void;
+  autoFocus?: boolean;
+  defaultRemember?: boolean;
+}> = ({ onSaved, onCancel, autoFocus, defaultRemember = false }) => {
   const [code, setCode] = useState('');
-  const [remember, setRemember] = useState(false);
+  const [remember, setRemember] = useState(defaultRemember);
 
   return (
     <form
+      autoComplete="off"
       className="space-y-1.5"
       onSubmit={(e) => {
         e.preventDefault();
@@ -24,14 +30,23 @@ const CodeForm: React.FC<{ onSaved: () => void; autoFocus?: boolean }> = ({ onSa
       }}
     >
       <div className="flex gap-1.5">
+        {/* A masked text field instead of type="password": browsers' password managers otherwise
+            offer to save the code and auto-fill it back in, which keeps an extra copy of it. */}
         <input
-          type="password"
+          type="text"
+          name="sv-chirp-operator-code"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-1p-ignore
+          data-lpignore="true"
           autoFocus={autoFocus}
           aria-label="Chirp operator access code"
           placeholder="Operator access code"
           value={code}
           onChange={(e) => setCode(e.target.value)}
+          style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
           className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-200"
         />
         <button
@@ -41,6 +56,15 @@ const CodeForm: React.FC<{ onSaved: () => void; autoFocus?: boolean }> = ({ onSa
         >
           Save
         </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 font-semibold text-[11px] cursor-pointer"
+          >
+            Cancel
+          </button>
+        )}
       </div>
       <label className="flex items-center gap-1.5 text-[10px] text-slate-400">
         <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
@@ -99,8 +123,10 @@ export const ChirpAccessCodePrompt: React.FC = () => {
 /** Settings row: shows whether a code is set or saved, and lets the operator change or forget it. */
 export const ChirpAccessCodeSettings: React.FC = () => {
   const [, refresh] = useState(0);
+  const [editing, setEditing] = useState(false);
   const saved = isChirpAccessCodeSaved();
   const active = hasChirpAccessCode();
+  const showForm = !active || editing;
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
@@ -116,18 +142,35 @@ export const ChirpAccessCodeSettings: React.FC = () => {
       <p className="text-[10px] text-slate-400 leading-relaxed">
         Not needed offline. Without the code, online Bisaya captions pause until it is entered.
       </p>
-      <CodeForm onSaved={() => refresh((n) => n + 1)} />
-      {active && (
-        <button
-          type="button"
-          onClick={() => {
-            clearChirpAccessCode();
+      {showForm ? (
+        <CodeForm
+          defaultRemember={saved}
+          onCancel={active ? () => setEditing(false) : undefined}
+          onSaved={() => {
+            setEditing(false);
             refresh((n) => n + 1);
           }}
-          className="px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-semibold text-[10px] cursor-pointer"
-        >
-          Forget code
-        </button>
+        />
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="px-2 py-1 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-300 font-semibold text-[10px] cursor-pointer"
+          >
+            Change code
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearChirpAccessCode();
+              refresh((n) => n + 1);
+            }}
+            className="px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-semibold text-[10px] cursor-pointer"
+          >
+            Forget code
+          </button>
+        </div>
       )}
     </div>
   );

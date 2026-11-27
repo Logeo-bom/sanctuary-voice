@@ -50,6 +50,7 @@ interface SettingsAndWalletModalProps {
   onRejectCorrection: (correctionId: string) => void;
   sourceLangCode?: string;
   targetLangCode?: string;
+  onApplyOfflineLanguages?: (sourceLangCode: string, targetLangCode: string) => void;
 }
 
 export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
@@ -71,6 +72,7 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   onRejectCorrection,
   sourceLangCode = 'auto',
   targetLangCode = 'en',
+  onApplyOfflineLanguages,
 }) => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [newTermInput, setNewTermInput] = useState<string>('');
@@ -533,7 +535,11 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           </div>
         </div>
 
-        <OfflineReadyPanel sourceLangCode={sourceLangCode} targetLangCode={targetLangCode} />
+        <OfflineReadyPanel
+          sourceLangCode={sourceLangCode}
+          targetLangCode={targetLangCode}
+          onApplyLanguages={onApplyOfflineLanguages}
+        />
 
         {/* 6. Crash Telemetry Diagnostics: surfaces the local crash log (captured by AppErrorBoundary
            and the global window error/unhandledrejection handlers) so a technical volunteer can see

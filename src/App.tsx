@@ -3272,6 +3272,10 @@ export function App() {
           onRejectCorrection={handleRejectCorrection}
           sourceLangCode={speaker1SourceLang}
           targetLangCode={targetLangCode}
+          onApplyOfflineLanguages={(src, tgt) => {
+            handleChangeSpeaker1Language(src);
+            handleChangeTargetLanguage(tgt);
+          }}
         />
 
         {/* QR-Code Live Caption Share Modal */}

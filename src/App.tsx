@@ -1545,18 +1545,25 @@ export function App() {
           if (!offlineEdgeEngineRef.current) {
             offlineEdgeEngineRef.current = new OfflineEdgeTranslator(srcLang, tgtLang, () => {});
           }
-          const translated = offlineEdgeEngineRef.current.translateOffline(text, srcLang, tgtLang);
+          // Prefer the on-device NLLB-200 model (covers Cebuano/Bisaya and Tagalog); it falls back
+          // to the small lexicon on its own if the model isn't downloaded or fails to load.
+          const t0 = performance.now();
           const srcMeta = SUPPORTED_LANGUAGES.find((l) => l.code === srcLang);
-          upsertSpeakerAndAppendSegment({
-            speakerId: 'speaker_1',
-            speakerLabel: 'Speaker 1 (Offline Whisper Fallback)',
-            roleHint: 'main-speaker',
-            sourceLanguageCode: srcLang,
-            sourceLanguageName: srcMeta?.name || srcLang.toUpperCase(),
-            originalText: text,
-            translatedText: translated,
-            latencyMs: dur,
-          });
+          void offlineEdgeEngineRef.current
+            .translateBestEffort(text, srcLang, tgtLang)
+            .catch(() => offlineEdgeEngineRef.current?.translateOffline(text, srcLang, tgtLang) ?? text)
+            .then((translated) => {
+              upsertSpeakerAndAppendSegment({
+                speakerId: 'speaker_1',
+                speakerLabel: 'Speaker 1 (Offline Whisper Fallback)',
+                roleHint: 'main-speaker',
+                sourceLanguageCode: srcLang,
+                sourceLanguageName: srcMeta?.name || srcLang.toUpperCase(),
+                originalText: text,
+                translatedText: translated,
+                latencyMs: dur + Math.round(performance.now() - t0),
+              });
+            });
         }
       );
       engine.setSourceLanguageHint(speaker1LangRef.current);

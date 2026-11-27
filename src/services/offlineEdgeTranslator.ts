@@ -1,6 +1,7 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
 import {
   type ModelProgressEvent,
+  getOfflineModelStatus,
   markOfflineModelDownloading,
   markOfflineModelError,
   markOfflineModelReady,
@@ -114,6 +115,31 @@ const OFFLINE_DICTIONARY: Record<string, Record<string, string>> = {
     'amor': 'love',
     'paz': 'peace',
   },
+  // Cebuano/Bisaya to English (used only when the NLLB-200 model isn't downloaded). Multi-word
+  // phrases come first so they match before their component words.
+  ceb_en: {
+    'espiritu santo': 'Holy Spirit',
+    'balaang espiritu': 'Holy Spirit',
+    'hesukristo': 'Jesus Christ',
+    'hesus': 'Jesus',
+    'ginoo': 'Lord',
+    'dios': 'God',
+    'grasya': 'grace',
+    'kaluwasan': 'salvation',
+    'pag-ampo': 'prayer',
+    'pagtuo': 'faith',
+    'pagkabanhaw': 'resurrection',
+    'ebanghelyo': 'Gospel',
+    'bibliya': 'Bible',
+    'panalangin': 'blessing',
+    'ikanapulo': 'tithe',
+    'halad': 'offering',
+    'langit': 'heaven',
+    'gugma': 'love',
+    'kalinaw': 'peace',
+    'krus': 'cross',
+    'amen': 'Amen',
+  },
 };
 
 // GoGospelNow/DilMesh-inspired on-device translation quality upgrade: NLLB-200 (distilled 600M)
@@ -142,6 +168,23 @@ const NLLB_LANG_CODES: Record<string, string> = {
   no: 'nob_Latn',
   sv: 'swe_Latn',
   nl: 'nld_Latn',
+  // Cebuano/Bisaya is in FLORES-200, so the same NLLB-200 model covers it — no extra download.
+  ceb: 'ceb_Latn',
+  uk: 'ukr_Cyrl',
+  sw: 'swh_Latn',
+  pl: 'pol_Latn',
+  hi: 'hin_Deva',
+  id: 'ind_Latn',
+  vi: 'vie_Latn',
+  tr: 'tur_Latn',
+  da: 'dan_Latn',
+  fi: 'fin_Latn',
+  el: 'ell_Grek',
+  ro: 'ron_Latn',
+  cs: 'ces_Latn',
+  hu: 'hun_Latn',
+  th: 'tha_Thai',
+  he: 'heb_Hebr',
 };
 
 interface NllbTranslationResult {
@@ -370,7 +413,10 @@ export class OfflineEdgeTranslator {
 
     const nllbSrc = NLLB_LANG_CODES[src];
     const nllbTgt = NLLB_LANG_CODES[tgt];
-    if (nllbSrc && nllbTgt) {
+    // Only use NLLB when it is already on this device (or loading); never start the ~900 MB download
+    // implicitly from a caption — downloads are opt-in from the Offline Ready panel.
+    const nllbAvailable = !!nllbPipelinePromise || getOfflineModelStatus(NLLB_MODEL_ID).state === 'ready';
+    if (nllbSrc && nllbTgt && nllbAvailable) {
       try {
         const translator = await getNllbPipeline();
         const result = await translator(text, { src_lang: nllbSrc, tgt_lang: nllbTgt });

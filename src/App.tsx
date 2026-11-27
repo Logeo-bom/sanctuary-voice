@@ -44,7 +44,11 @@ import {
   SPEAKER_PALETTE,
   SUPPORTED_LANGUAGES,
 } from './constants/languages';
-import { ChurchAudioEngine, preloadWhisperModel } from './services/churchAudioEngine';
+import {
+  ChurchAudioEngine,
+  getWhisperModelIdForLanguage,
+  preloadWhisperModel,
+} from './services/churchAudioEngine';
 import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
@@ -53,7 +57,12 @@ import { transcribeAndTranslateWithChirp } from './services/googleChirpTranslato
 import { isChirpOnlyLanguage } from './constants/chirpLanguages';
 import { isNearDuplicateFragment } from './utils/transcriptUtils';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
-import { OfflineEdgeTranslator, preloadNllbModel } from './services/offlineEdgeTranslator';
+import {
+  NLLB_MODEL_ID,
+  OfflineEdgeTranslator,
+  preloadNllbModel,
+} from './services/offlineEdgeTranslator';
+import { getOfflineModelStatus, verifyOfflineModelCache } from './services/offlineReadiness';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
 import {
   detectScriptureReferences,
@@ -583,18 +592,33 @@ export function App() {
     };
   }, [isListening, isOfflineEdgeActive]);
 
-  // Eager offline-model pre-caching (missionary/remote-venue design): as soon as the app has ANY
-  // connectivity — on first load, or the moment connectivity returns after being offline — silently
-  // start downloading the on-device Whisper + NLLB-200 models in the background. By the time a
-  // missionary actually reaches a location with no internet at all, the fallback models are already
-  // cached locally and don't themselves need a network call to become available.
+  // Do not download large offline models automatically. When connectivity is available, verify the
+  // browser cache and warm only models already marked as downloaded on this device; new downloads
+  // are started explicitly from the Offline Ready panel.
   useEffect(() => {
     if (!isOnline) return;
+    let cancelled = false;
+    const warmDownloadedModels = async () => {
+      await verifyOfflineModelCache();
+      if (cancelled) return;
+
+      const sourceLangCode = speaker1LangRef.current;
+      const whisperModelId = getWhisperModelIdForLanguage(sourceLangCode);
+      if (getOfflineModelStatus(whisperModelId).state === 'ready') {
+        preloadWhisperModel(sourceLangCode);
+      }
+      if (getOfflineModelStatus(NLLB_MODEL_ID).state === 'ready') {
+        preloadNllbModel();
+      }
+    };
+
     const idleHandle = window.setTimeout(() => {
-      preloadWhisperModel(speaker1LangRef.current);
-      preloadNllbModel();
+      void warmDownloadedModels();
     }, 1500);
-    return () => window.clearTimeout(idleHandle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(idleHandle);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline, speaker1SourceLang]);
 

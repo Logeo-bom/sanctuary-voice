@@ -12,6 +12,7 @@ import {
   markOfflineModelDownloading,
   markOfflineModelError,
   markOfflineModelReady,
+  removeOfflineModelFiles,
   reportOfflineModelProgress,
 } from './offlineReadiness';
 
@@ -30,12 +31,10 @@ type WhisperTranscriber = (
   options?: Record<string, unknown>
 ) => Promise<WhisperTranscriptionResult | WhisperTranscriptionResult[]>;
 
-// Module-level (not instance-bound) cache, keyed by model id, so the on-device Whisper model can be
-// eagerly pre-cached (see `preloadWhisperModel` below) as soon as the app has any connectivity at
-// all, instead of only being fetched reactively the first time a `ChurchAudioEngine` instance
-// actually needs it mid-outage. Once loaded, the browser's HTTP cache keeps it available fully
-// offline. Keyed by model id (not a single shared promise) because different source languages use
-// different checkpoints - see `getWhisperModelIdForLanguage` below.
+// Module-level (not instance-bound) cache, keyed by model id, so a loaded on-device Whisper model
+// can be reused by the offline fallback and the Offline Ready panel. Keyed by model id (not a single
+// shared promise) because different source languages use different checkpoints - see
+// `getWhisperModelIdForLanguage` below.
 const whisperPipelinePromises = new Map<string, Promise<WhisperTranscriber>>();
 
 const DEFAULT_WHISPER_MODEL_ID = 'Xenova/whisper-tiny';
@@ -99,12 +98,10 @@ async function getWhisperPipeline(modelId: string = DEFAULT_WHISPER_MODEL_ID): P
 }
 
 /**
- * Eagerly downloads and caches the on-device Whisper model ahead of time (missionary/remote-venue
- * use case: by the time the device actually loses connectivity in the field, the model is already
- * warm, so the offline fallback doesn't itself require a network call). Safe to call repeatedly —
- * it's a no-op once the model is loaded or already loading. Never throws. Pass the currently
- * selected source language so the correct checkpoint (see `getWhisperModelIdForLanguage`) is
- * pre-cached instead of always just the default.
+ * Loads the on-device Whisper model. The app uses this to warm a model only after the readiness
+ * store confirms it was already downloaded; explicit downloads are initiated by the Offline Ready
+ * panel. Safe to call repeatedly — it's a no-op once the model is loaded or already loading. Never
+ * throws. Pass the selected source language to use the correct checkpoint.
  */
 export function preloadWhisperModel(sourceLang?: string): void {
   const modelId = getWhisperModelIdForLanguage(sourceLang || '');
@@ -119,6 +116,23 @@ export function preloadWhisperModel(sourceLang?: string): void {
  */
 export async function downloadWhisperModel(sourceLang?: string): Promise<void> {
   await getWhisperPipeline(getWhisperModelIdForLanguage(sourceLang || ''));
+}
+
+/** Releases the selected Whisper pipeline and removes its cached model files from this device. */
+export async function removeWhisperModel(sourceLang?: string): Promise<void> {
+  const modelId = getWhisperModelIdForLanguage(sourceLang || '');
+  const pipelinePromise = whisperPipelinePromises.get(modelId);
+  whisperPipelinePromises.delete(modelId);
+
+  if (pipelinePromise) {
+    try {
+      const transcriber = await pipelinePromise;
+      const disposable = transcriber as WhisperTranscriber & { dispose?: () => void | Promise<void> };
+      await disposable.dispose?.();
+    } catch {}
+  }
+
+  await removeOfflineModelFiles(modelId);
 }
 
 export class ChurchAudioEngine {

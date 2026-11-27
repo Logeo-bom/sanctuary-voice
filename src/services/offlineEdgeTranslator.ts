@@ -4,6 +4,7 @@ import {
   markOfflineModelDownloading,
   markOfflineModelError,
   markOfflineModelReady,
+  removeOfflineModelFiles,
   reportOfflineModelProgress,
 } from './offlineReadiness';
 
@@ -119,8 +120,8 @@ const OFFLINE_DICTIONARY: Record<string, Record<string, string>> = {
 // is a free, open-weights, 200-language neural machine translation model that runs entirely in the
 // browser via transformers.js (WASM), giving meaningfully better offline translation quality than
 // the small hardcoded theological lexicon above, without requiring any cloud API or local Ollama
-// install. It is loaded lazily and only on first actual offline use, same pattern as the Whisper
-// fallback in churchAudioEngine.ts, so churches that never go offline never pay the ~80MB download.
+// install. It is loaded lazily and on request from the Offline Ready panel or offline fallback, so
+// the operator controls whether this large model is stored on the device.
 export const NLLB_MODEL_ID = 'Xenova/nllb-200-distilled-600M';
 
 // Minimal mapping from our app's ISO language codes to NLLB's FLORES-200 codes, covering the
@@ -181,11 +182,9 @@ async function getNllbPipeline(): Promise<NllbTranslator> {
 }
 
 /**
- * Eagerly downloads and caches the on-device NLLB-200 translation model ahead of time, the same
- * missionary/remote-venue rationale as `preloadWhisperModel` in churchAudioEngine.ts: fetch it the
- * first time the app has any connectivity (e.g. at the home church before heading to the field) so
- * the offline translation path is already warm by the time it's actually needed with zero network.
- * Safe to call repeatedly; no-op once loaded or already loading. Never throws.
+ * Loads the on-device NLLB-200 translation model. The app uses this to warm a model only after the
+ * readiness store confirms it was already downloaded; explicit downloads are initiated by the
+ * Offline Ready panel. Safe to call repeatedly; no-op once loaded or already loading. Never throws.
  */
 export function preloadNllbModel(): void {
   void getNllbPipeline().catch((err) => {
@@ -199,6 +198,22 @@ export function preloadNllbModel(): void {
  */
 export async function downloadNllbModel(): Promise<void> {
   await getNllbPipeline();
+}
+
+/** Releases the NLLB pipeline and removes its cached model files from this device. */
+export async function removeNllbModel(): Promise<void> {
+  const pipelinePromise = nllbPipelinePromise;
+  nllbPipelinePromise = null;
+
+  if (pipelinePromise) {
+    try {
+      const translator = await pipelinePromise;
+      const disposable = translator as NllbTranslator & { dispose?: () => void | Promise<void> };
+      await disposable.dispose?.();
+    } catch {}
+  }
+
+  await removeOfflineModelFiles(NLLB_MODEL_ID);
 }
 
 /** Whether on-device NLLB translation covers this language (otherwise the small lexicon is used). */

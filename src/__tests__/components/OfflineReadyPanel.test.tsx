@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   downloadWhisperModel: vi.fn().mockResolvedValue(undefined),
   downloadNllbModel: vi.fn().mockResolvedValue(undefined),
+  removeWhisperModel: vi.fn().mockResolvedValue(undefined),
+  removeNllbModel: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../services/churchAudioEngine', () => ({
   downloadWhisperModel: mocks.downloadWhisperModel,
+  removeWhisperModel: mocks.removeWhisperModel,
   getWhisperModelIdForLanguage: (lang: string) =>
     lang === 'ceb' || lang === 'tl' ? 'Xenova/whisper-small' : 'Xenova/whisper-tiny',
 }));
@@ -16,6 +19,7 @@ vi.mock('../../services/offlineEdgeTranslator', () => ({
   NLLB_MODEL_ID: 'Xenova/nllb-200-distilled-600M',
   downloadNllbModel: mocks.downloadNllbModel,
   isNllbLanguageSupported: (lang: string) => ['en', 'es', 'pt', 'tl'].includes(lang),
+  removeNllbModel: mocks.removeNllbModel,
 }));
 
 import { OfflineReadyPanel } from '../../components/OfflineReadyPanel';
@@ -31,6 +35,8 @@ describe('OfflineReadyPanel', () => {
     resetOfflineReadinessForTests();
     mocks.downloadWhisperModel.mockClear();
     mocks.downloadNllbModel.mockClear();
+    mocks.removeWhisperModel.mockClear();
+    mocks.removeNllbModel.mockClear();
   });
 
   it('shows both models as not downloaded and starts a download on tap', async () => {
@@ -78,5 +84,22 @@ describe('OfflineReadyPanel', () => {
     expect(screen.getByText('Xenova/whisper-small')).toBeInTheDocument();
     expect(screen.getByText('Not ready yet')).toBeInTheDocument();
     expect(screen.getByText(/small built-in word list/i)).toBeInTheDocument();
+  });
+
+  it('shows approximate model sizes and removes ready models from the device', async () => {
+    markOfflineModelReady('Xenova/whisper-tiny');
+    markOfflineModelReady('Xenova/nllb-200-distilled-600M');
+    await act(async () => {
+      render(<OfflineReadyPanel sourceLangCode="en" targetLangCode="es" />);
+    });
+
+    expect(screen.getByText(/\(~40 MB\)/)).toBeInTheDocument();
+    expect(screen.getByText(/\(~900 MB\)/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /remove/i })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: /remove speech recognition model/i }));
+    fireEvent.click(screen.getByRole('button', { name: /remove translation model/i }));
+    expect(mocks.removeWhisperModel).toHaveBeenCalledWith('en');
+    expect(mocks.removeNllbModel).toHaveBeenCalledTimes(1);
   });
 });

@@ -23,6 +23,11 @@ export interface ModelProgressEvent {
 const STORAGE_KEY_READY_MODELS = 'sanctuary_offline_ready_models';
 const TRANSFORMERS_CACHE_NAME = 'transformers-cache';
 const MISSING: OfflineModelStatus = { state: 'missing', progress: 0 };
+export const OFFLINE_MODEL_APPROX_SIZE_MB: Record<string, number> = {
+  'Xenova/whisper-tiny': 40,
+  'Xenova/whisper-small': 250,
+  'Xenova/nllb-200-distilled-600M': 900,
+};
 
 const statuses = new Map<string, OfflineModelStatus>();
 const fileProgress = new Map<string, Map<string, { loaded: number; total: number }>>();
@@ -53,6 +58,10 @@ export function getOfflineModelStatus(modelId: string): OfflineModelStatus {
   const current = statuses.get(modelId);
   if (current) return current;
   return loadReadyModelIds().includes(modelId) ? { state: 'ready', progress: 100 } : MISSING;
+}
+
+export function getOfflineModelApproxSizeMb(modelId: string): number | undefined {
+  return OFFLINE_MODEL_APPROX_SIZE_MB[modelId];
 }
 
 export function subscribeOfflineReadiness(listener: () => void): () => void {
@@ -106,6 +115,25 @@ export function markOfflineModelError(modelId: string, err: unknown): void {
   fileProgress.delete(modelId);
   const message = err instanceof Error ? err.message : String(err);
   setStatus(modelId, { state: 'error', progress: 0, error: message });
+}
+
+/** Removes one model's cached files without disturbing other models stored in the shared cache. */
+export async function removeOfflineModelFiles(modelId: string): Promise<void> {
+  if (typeof caches !== 'undefined' && (await caches.has(TRANSFORMERS_CACHE_NAME))) {
+    const cache = await caches.open(TRANSFORMERS_CACHE_NAME);
+    const modelPath = `/${modelId}/`;
+    const requests = await cache.keys();
+    await Promise.all(
+      requests
+        .filter((request) => request.url.includes(modelPath))
+        .map((request) => cache.delete(request))
+    );
+  }
+
+  const readyModelIds = loadReadyModelIds().filter((id) => id !== modelId);
+  saveReadyModelIds(readyModelIds);
+  fileProgress.delete(modelId);
+  setStatus(modelId, MISSING);
 }
 
 /**

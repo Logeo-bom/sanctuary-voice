@@ -71,7 +71,7 @@ async function getWhisperPipeline(modelId: string = DEFAULT_WHISPER_MODEL_ID): P
       try {
         // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
         // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
-        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+        const transformersModuleUrl = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
         transformers.env.allowLocalModels = false;

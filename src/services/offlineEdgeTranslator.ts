@@ -159,7 +159,7 @@ async function getNllbPipeline(): Promise<NllbTranslator> {
     nllbPipelinePromise = (async () => {
       markOfflineModelDownloading(NLLB_MODEL_ID);
       try {
-        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+        const transformersModuleUrl = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
         transformers.env.allowLocalModels = false;

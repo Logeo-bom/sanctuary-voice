@@ -3239,6 +3239,8 @@ export function App() {
           pendingCorrections={flaggedCorrections.filter((c) => c.status === 'pending')}
           onApproveCorrection={handleApproveCorrection}
           onRejectCorrection={handleRejectCorrection}
+          sourceLangCode={speaker1SourceLang}
+          targetLangCode={targetLangCode}
         />
 
         {/* QR-Code Live Caption Share Modal */}

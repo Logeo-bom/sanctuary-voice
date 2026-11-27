@@ -25,6 +25,7 @@ import type {
 import type { FlaggedCorrection } from '../services/glossaryCorrections';
 import { ChurchAudioEngine } from '../services/churchAudioEngine';
 import { type CrashEntry, loadCrashLog, clearCrashLog } from '../services/crashTelemetry';
+import { OfflineReadyPanel } from './OfflineReadyPanel';
 
 interface SettingsAndWalletModalProps {
   isOpen: boolean;
@@ -47,6 +48,8 @@ interface SettingsAndWalletModalProps {
   pendingCorrections: FlaggedCorrection[];
   onApproveCorrection: (correctionId: string) => void;
   onRejectCorrection: (correctionId: string) => void;
+  sourceLangCode?: string;
+  targetLangCode?: string;
 }
 
 export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
@@ -66,6 +69,8 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
   pendingCorrections,
   onApproveCorrection,
   onRejectCorrection,
+  sourceLangCode = 'auto',
+  targetLangCode = 'en',
 }) => {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [newTermInput, setNewTermInput] = useState<string>('');
@@ -527,6 +532,8 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
             </button>
           </div>
         </div>
+
+        <OfflineReadyPanel sourceLangCode={sourceLangCode} targetLangCode={targetLangCode} />
 
         {/* 6. Crash Telemetry Diagnostics: surfaces the local crash log (captured by AppErrorBoundary
            and the global window error/unhandledrejection handlers) so a technical volunteer can see

@@ -7,6 +7,13 @@ import {
   float32ToInt16Pcm,
   hasSpeechActivity,
 } from '../utils/audioPcmUtils';
+import {
+  type ModelProgressEvent,
+  markOfflineModelDownloading,
+  markOfflineModelError,
+  markOfflineModelReady,
+  reportOfflineModelProgress,
+} from './offlineReadiness';
 
 export type AudioChunkCallback = (audioBlob: Blob, mimeType: string, durationMs: number) => void;
 export type AudioStreamingSliceCallback = (pcm16Buffer: ArrayBuffer) => void;
@@ -60,17 +67,31 @@ async function getWhisperPipeline(modelId: string = DEFAULT_WHISPER_MODEL_ID): P
   let pipelinePromise = whisperPipelinePromises.get(modelId);
   if (!pipelinePromise) {
     pipelinePromise = (async () => {
-      // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
-      // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
-      const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
-      transformers.env.allowLocalModels = false;
-      return (await transformers.pipeline(
-        'automatic-speech-recognition',
-        modelId,
-        { quantized: true }
-      )) as WhisperTranscriber;
+      markOfflineModelDownloading(modelId);
+      try {
+        // Dynamic, non-literal specifier keeps this out of the static TS module graph (no local type
+        // declarations exist for this CDN-hosted package) and out of Vite's build-time bundling.
+        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
+        transformers.env.allowLocalModels = false;
+        const transcriber = (await transformers.pipeline(
+          'automatic-speech-recognition',
+          modelId,
+          {
+            quantized: true,
+            progress_callback: (event: ModelProgressEvent) => reportOfflineModelProgress(modelId, event),
+          }
+        )) as WhisperTranscriber;
+        markOfflineModelReady(modelId);
+        return transcriber;
+      } catch (err) {
+        // Drop the failed promise so a later attempt (e.g. the operator tapping "Retry") starts over
+        // instead of returning the same cached rejection forever.
+        whisperPipelinePromises.delete(modelId);
+        markOfflineModelError(modelId, err);
+        throw err;
+      }
     })();
     whisperPipelinePromises.set(modelId, pipelinePromise);
   }
@@ -90,6 +111,14 @@ export function preloadWhisperModel(sourceLang?: string): void {
   void getWhisperPipeline(modelId).catch((err) => {
     console.warn('[ChurchAudioEngine] Eager Whisper model pre-cache failed (will retry on demand):', err);
   });
+}
+
+/**
+ * Same as `preloadWhisperModel`, but returns a promise the "Offline Ready" panel can await. Rejects
+ * if the download fails; progress is reported through `offlineReadiness`.
+ */
+export async function downloadWhisperModel(sourceLang?: string): Promise<void> {
+  await getWhisperPipeline(getWhisperModelIdForLanguage(sourceLang || ''));
 }
 
 export class ChurchAudioEngine {

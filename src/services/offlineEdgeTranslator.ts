@@ -1,4 +1,11 @@
 import { SUPPORTED_LANGUAGES } from '../constants/languages';
+import {
+  type ModelProgressEvent,
+  markOfflineModelDownloading,
+  markOfflineModelError,
+  markOfflineModelReady,
+  reportOfflineModelProgress,
+} from './offlineReadiness';
 
 export interface OfflineTranscriptEvent {
   originalText: string;
@@ -114,7 +121,7 @@ const OFFLINE_DICTIONARY: Record<string, Record<string, string>> = {
 // the small hardcoded theological lexicon above, without requiring any cloud API or local Ollama
 // install. It is loaded lazily and only on first actual offline use, same pattern as the Whisper
 // fallback in churchAudioEngine.ts, so churches that never go offline never pay the ~80MB download.
-const NLLB_MODEL_ID = 'Xenova/nllb-200-distilled-600M';
+export const NLLB_MODEL_ID = 'Xenova/nllb-200-distilled-600M';
 
 // Minimal mapping from our app's ISO language codes to NLLB's FLORES-200 codes, covering the
 // languages already supported by SUPPORTED_LANGUAGES. Unmapped codes fall back to the lexicon.
@@ -150,13 +157,24 @@ let nllbPipelinePromise: Promise<NllbTranslator> | null = null;
 async function getNllbPipeline(): Promise<NllbTranslator> {
   if (!nllbPipelinePromise) {
     nllbPipelinePromise = (async () => {
-      const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
-      transformers.env.allowLocalModels = false;
-      return (await transformers.pipeline('translation', NLLB_MODEL_ID, {
-        quantized: true,
-      })) as NllbTranslator;
+      markOfflineModelDownloading(NLLB_MODEL_ID);
+      try {
+        const transformersModuleUrl = 'https://esm.sh/@xenova/transformers@2.17.2';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const transformers: any = await import(/* @vite-ignore */ transformersModuleUrl);
+        transformers.env.allowLocalModels = false;
+        const translator = (await transformers.pipeline('translation', NLLB_MODEL_ID, {
+          quantized: true,
+          progress_callback: (event: ModelProgressEvent) => reportOfflineModelProgress(NLLB_MODEL_ID, event),
+        })) as NllbTranslator;
+        markOfflineModelReady(NLLB_MODEL_ID);
+        return translator;
+      } catch (err) {
+        // Drop the failed promise so a later attempt can retry instead of reusing the rejection.
+        nllbPipelinePromise = null;
+        markOfflineModelError(NLLB_MODEL_ID, err);
+        throw err;
+      }
     })();
   }
   return nllbPipelinePromise;
@@ -173,6 +191,19 @@ export function preloadNllbModel(): void {
   void getNllbPipeline().catch((err) => {
     console.warn('[OfflineEdgeTranslator] Eager NLLB-200 model pre-cache failed (will retry on demand):', err);
   });
+}
+
+/**
+ * Same as `preloadNllbModel`, but returns a promise the "Offline Ready" panel can await. Rejects if
+ * the download fails; progress is reported through `offlineReadiness`.
+ */
+export async function downloadNllbModel(): Promise<void> {
+  await getNllbPipeline();
+}
+
+/** Whether on-device NLLB translation covers this language (otherwise the small lexicon is used). */
+export function isNllbLanguageSupported(langCode: string): boolean {
+  return !!NLLB_LANG_CODES[(langCode || '').toLowerCase().split('-')[0]];
 }
 
 export class OfflineEdgeTranslator {

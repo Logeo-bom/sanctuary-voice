@@ -311,7 +311,7 @@ export const OfflineReadyPanel: React.FC<OfflineReadyPanelProps> = ({
         </p>
       )}
       <p className="text-[10px] text-slate-500 leading-tight">
-        Keep this app open when going offline. Reloading the page without internet may not work yet.
+        Open this app once with internet after each update; after that it opens without internet too. For the best experience, add it to your home screen (browser menu → Install app / Add to Home screen).
       </p>
     </div>
   );

@@ -6,8 +6,63 @@ import {
   isLikelyTtsEcho,
 } from '../utils/transcriptUtils';
 
-let chirpAccessCode: string | null = null;
-let chirpAccessCancelled = false;
+// Operator access code for the paid Chirp proxy. Kept in memory by default; only saved on the device
+// when the operator ticks "Remember on this device" (anyone holding that device can then use Chirp).
+const STORAGE_KEY_CHIRP_ACCESS_CODE = 'sanctuary_chirp_access_code';
+export const CHIRP_ACCESS_CODE_REQUIRED_EVENT = 'sanctuary:chirp-access-code-required';
+
+function loadSavedChirpAccessCode(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY_CHIRP_ACCESS_CODE) || null;
+  } catch {
+    return null;
+  }
+}
+
+let chirpAccessCode: string | null = loadSavedChirpAccessCode();
+
+/** Thrown instead of prompting when Chirp needs an operator access code (missing or rejected). */
+export class ChirpAccessCodeRequiredError extends Error {
+  readonly invalid: boolean;
+  constructor(invalid: boolean) {
+    super(invalid ? 'The Chirp access code was not accepted.' : 'Enter the Chirp operator access code.');
+    this.name = 'ChirpAccessCodeRequiredError';
+    this.invalid = invalid;
+  }
+}
+
+function requestChirpAccessCode(invalid: boolean): never {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(CHIRP_ACCESS_CODE_REQUIRED_EVENT, { detail: { invalid } }));
+  }
+  throw new ChirpAccessCodeRequiredError(invalid);
+}
+
+export function hasChirpAccessCode(): boolean {
+  return !!chirpAccessCode;
+}
+
+export function isChirpAccessCodeSaved(): boolean {
+  return !!loadSavedChirpAccessCode();
+}
+
+/** Sets the code for this session; `remember` also saves it on this device. */
+export function setChirpAccessCode(code: string, remember: boolean): void {
+  const trimmed = code.trim();
+  chirpAccessCode = trimmed || null;
+  try {
+    if (remember && trimmed) localStorage.setItem(STORAGE_KEY_CHIRP_ACCESS_CODE, trimmed);
+    else localStorage.removeItem(STORAGE_KEY_CHIRP_ACCESS_CODE);
+  } catch {}
+}
+
+/** Forgets the code in memory and on this device. */
+export function clearChirpAccessCode(): void {
+  chirpAccessCode = null;
+  try {
+    localStorage.removeItem(STORAGE_KEY_CHIRP_ACCESS_CODE);
+  } catch {}
+}
 
 export interface ChirpStageUtterance {
   speakerId: string;
@@ -60,14 +115,8 @@ export async function transcribeAndTranslateWithChirp(params: {
   recentContext?: string;
 }): Promise<ChirpTranslationResult> {
   const startTime = performance.now();
-  if (chirpAccessCancelled) throw new Error('Chirp access cancelled. Reload to try again.');
-  if (!chirpAccessCode) {
-    chirpAccessCode = window.prompt('Enter the Chirp operator access code:')?.trim() || null;
-    if (!chirpAccessCode) {
-      chirpAccessCancelled = true;
-      throw new Error('Chirp access cancelled. Reload to try again.');
-    }
-  }
+  // Never block with window.prompt(): it freezes the whole page (and live captions) until answered.
+  if (!chirpAccessCode) requestChirpAccessCode(false);
   const base64Audio = await blobToBase64(params.audioBlob);
   const chirpLanguageCode = getChirpLanguageCode(params.sourceLanguageCode);
 
@@ -82,7 +131,10 @@ export async function transcribeAndTranslateWithChirp(params: {
   });
 
   if (!sttRes.ok) {
-    if (sttRes.status === 401) chirpAccessCode = null;
+    if (sttRes.status === 401) {
+      clearChirpAccessCode();
+      requestChirpAccessCode(true);
+    }
     const errText = await sttRes.text();
     throw new Error(`Chirp 2 transcription failed (${sttRes.status}): ${errText.slice(0, 200)}`);
   }

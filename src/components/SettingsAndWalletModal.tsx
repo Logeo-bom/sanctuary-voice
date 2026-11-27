@@ -26,6 +26,7 @@ import type { FlaggedCorrection } from '../services/glossaryCorrections';
 import { ChurchAudioEngine } from '../services/churchAudioEngine';
 import { type CrashEntry, loadCrashLog, clearCrashLog } from '../services/crashTelemetry';
 import { OfflineReadyPanel } from './OfflineReadyPanel';
+import { ChirpAccessCodeSettings } from './ChirpAccessCode';
 
 interface SettingsAndWalletModalProps {
   isOpen: boolean;
@@ -540,6 +541,8 @@ export const SettingsAndWalletModal: React.FC<SettingsAndWalletModalProps> = ({
           targetLangCode={targetLangCode}
           onApplyLanguages={onApplyOfflineLanguages}
         />
+
+        <ChirpAccessCodeSettings />
 
         {/* 6. Crash Telemetry Diagnostics: surfaces the local crash log (captured by AppErrorBoundary
            and the global window error/unhandledrejection handlers) so a technical volunteer can see

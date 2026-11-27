@@ -53,7 +53,11 @@ import { EarphoneSpeechEngine } from './services/earphoneSpeechEngine';
 import { translateChurchStageAudioChunk } from './services/geminiStageTranslator';
 import { transcribeAndTranslateWithDeepgram } from './services/deepgramTranslator';
 import { DeepgramLiveWebSocket, DEEPGRAM_TRANSIENT_SOCKET_ERROR } from './services/deepgramLiveWebSocket';
-import { transcribeAndTranslateWithChirp } from './services/googleChirpTranslator';
+import {
+  ChirpAccessCodeRequiredError,
+  transcribeAndTranslateWithChirp,
+} from './services/googleChirpTranslator';
+import { ChirpAccessCodePrompt } from './components/ChirpAccessCode';
 import { isChirpOnlyLanguage } from './constants/chirpLanguages';
 import { isNearDuplicateFragment } from './utils/transcriptUtils';
 import { BrowserLiveSpeechFallback } from './services/browserLiveFallback';
@@ -1063,6 +1067,11 @@ export function App() {
       // at all, so they're always routed through Google Cloud Chirp 2 instead, regardless of the
       // Deepgram/Gemini `aiProvider` toggle - see `src/constants/chirpLanguages.ts`.
       if (isChirpOnlyLanguage(speaker1LangRef.current)) {
+        // Offline Mode: Chirp is a cloud service, so never send it audio (or ask for its access code)
+        // while the app has detected there is no usable internet; the on-device path handles it.
+        if (connectionModeRef.current === 'offline' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+          return;
+        }
         setIsProcessingChunk(true);
         try {
           const recentOriginalContext = segmentsRef.current
@@ -1109,6 +1118,16 @@ export function App() {
           setErrorNotice(null);
         } catch (chirpErr) {
           if (sessionId !== listeningSessionIdRef.current || !isListeningRef.current) return;
+          // Missing/rejected access code: the non-blocking ChirpAccessCodePrompt card handles it.
+          if (chirpErr instanceof ChirpAccessCodeRequiredError) return;
+          // fetch() rejects with a TypeError when the network is unreachable (e.g. Wi-Fi with no
+          // internet). Switch to the on-device path right away instead of waiting for the next
+          // connectivity probe; the probe switches back to cloud once the internet really works.
+          if (chirpErr instanceof TypeError) {
+            setConnectionMode('offline');
+            audioEngineRef.current?.setForceOffline(true);
+            return;
+          }
           const chirpErrorMsg = chirpErr instanceof Error ? chirpErr.message : 'Chirp 2 request failed';
           console.warn('[Chirp 2 Chunk Error]:', chirpErrorMsg);
           consecutiveFailuresRef.current += 1;
@@ -3225,6 +3244,9 @@ export function App() {
           {/* Android Home Gesture Pill */}
           <div className="w-28 h-1 bg-slate-800 rounded-full mx-auto mt-4 hidden sm:block" />
         </footer>
+
+        {/* Non-blocking Chirp operator access-code card (replaces the old window.prompt) */}
+        <ChirpAccessCodePrompt />
 
         {/* Settings & Pre-Paid Wallet Modal */}
         <SettingsAndWalletModal

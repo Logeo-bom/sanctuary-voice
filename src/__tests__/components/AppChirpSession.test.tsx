@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../../App';
-import type { ChirpTranslationResult } from '../../services/googleChirpTranslator';
+import {
+  CHIRP_ACCESS_CODE_REQUIRED_EVENT,
+  ChirpAccessCodeRequiredError,
+  type ChirpTranslationResult,
+} from '../../services/googleChirpTranslator';
 
 const mocks = vi.hoisted(() => ({
   chunks: [] as Array<(blob: Blob, mime: string, duration: number) => void>,
@@ -9,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
 }));
 
-vi.mock('../../services/googleChirpTranslator', () => ({
+vi.mock('../../services/googleChirpTranslator', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/googleChirpTranslator')>()),
   transcribeAndTranslateWithChirp: mocks.chirp,
 }));
 
@@ -130,5 +135,31 @@ describe('App Chirp session boundaries', () => {
     expect(screen.queryByText('Old session original')).not.toBeInTheDocument();
     expect(screen.queryByText('Old session caption')).not.toBeInTheDocument();
     expect(screen.queryByText('Old session Chirp error')).not.toBeInTheDocument();
+  });
+
+  it('shows the non-blocking access-code card instead of an error when Chirp needs the code', async () => {
+    mocks.chirp.mockImplementationOnce(async () => {
+      window.dispatchEvent(new CustomEvent(CHIRP_ACCESS_CODE_REQUIRED_EVENT, { detail: { invalid: false } }));
+      throw new ChirpAccessCodeRequiredError(false);
+    });
+    render(<App />);
+    await toggle('Tap to Listen');
+    await screen.findByText('Tap to Stop Mic');
+    await emitChunk(0);
+
+    expect(await screen.findByRole('dialog', { name: /chirp access code/i })).toBeInTheDocument();
+    expect(screen.queryByText(/enter the chirp operator access code\./i)).not.toBeInTheDocument();
+    expect(screen.getByText('Tap to Stop Mic')).toBeInTheDocument();
+  });
+
+  it('never sends audio to Chirp once the connection drops', async () => {
+    render(<App />);
+    await toggle('Tap to Listen');
+    await screen.findByText('Tap to Stop Mic');
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await act(async () => {
+      mocks.chunks[0](new Blob(['audio']), 'audio/webm', 4000);
+    });
+    expect(mocks.chirp).not.toHaveBeenCalled();
   });
 });

@@ -68,6 +68,7 @@ import {
 } from './services/offlineEdgeTranslator';
 import { getOfflineModelStatus, verifyOfflineModelCache } from './services/offlineReadiness';
 import { SettingsAndWalletModal } from './components/SettingsAndWalletModal';
+import { LanguagePicker, type LanguagePickerExtraOption } from './components/LanguagePicker';
 import {
   detectScriptureReferences,
   fetchScriptureVerse,
@@ -95,6 +96,10 @@ import {
   loadRecoverableSessionSnapshot,
   clearSessionSnapshot,
 } from './services/sessionRecovery';
+
+const AUTO_DETECT_OPTION: LanguagePickerExtraOption[] = [
+  { code: 'auto', label: '✨ Auto-Detect (EN/EU)', keywords: 'auto detect automatic' },
+];
 
 const STORAGE_KEY_GEMINI = 'sanctuary_voice_gemini_key_v1';
 const STORAGE_KEY_DEEPGRAM = 'sanctuary_voice_deepgram_key_v1';
@@ -2180,18 +2185,14 @@ export function App() {
               <label className="block text-[10px] text-slate-400 font-medium mb-1">
                 Speaker 1 Language:
               </label>
-              <select
+              <LanguagePicker
+                label="Speaker 1 Language"
                 value={speaker1SourceLang}
-                onChange={(e) => handleChangeSpeaker1Language(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-500"
-              >
-                <option value="auto">✨ Auto-Detect (EN/EU)</option>
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.flag} {lang.name}
-                  </option>
-                ))}
-              </select>
+                languages={SUPPORTED_LANGUAGES}
+                onChange={handleChangeSpeaker1Language}
+                extraOptions={AUTO_DETECT_OPTION}
+                triggerClassName="border-slate-800 focus:border-sky-500"
+              />
               {speaker1SourceLang === 'auto' && (
                 <p className="text-[9px] text-amber-400/90 mt-1 leading-tight">
                   Tip: Pick Korean, Tagalog, or Chinese directly for best accuracy.
@@ -2203,17 +2204,14 @@ export function App() {
               <label className="block text-[10px] text-sky-400 font-semibold mb-1">
                 Translate To (My Earphones):
               </label>
-              <select
+              <LanguagePicker
+                label="Translate To"
                 value={targetLangCode}
-                onChange={(e) => handleChangeTargetLanguage(e.target.value)}
-                className="w-full bg-slate-900 border border-sky-500/40 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
-              >
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.flag} {lang.name}
-                  </option>
-                ))}
-              </select>
+                languages={SUPPORTED_LANGUAGES}
+                onChange={handleChangeTargetLanguage}
+                align="right"
+                triggerClassName="border-sky-500/40 focus:border-sky-400"
+              />
             </div>
           </div>
         )}
